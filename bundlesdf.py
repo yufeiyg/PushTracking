@@ -400,11 +400,9 @@ class BundleSdf:
       frame._pose_in_model = ref_frame._pose_in_model
     else:
       self.bundler._firstframe = frame
-
     frame.invalidatePixelsByMask(frame._fg_mask)
     if frame._id==0 and np.abs(np.array(frame._pose_in_model)-np.eye(4)).max()<=1e-4:
       frame.setNewInitCoordinate()
-
 
     n_fg = (np.array(frame._fg_mask)>0).sum()
     if n_fg<100:
@@ -415,7 +413,6 @@ class BundleSdf:
 
     if self.cfg_track["depth_processing"]["denoise_cloud"]:
       frame.pointCloudDenoise()
-
     n_valid = frame.countValidPoints()
     n_valid_first = self.bundler._firstframe.countValidPoints()
     if n_valid<n_valid_first/40.0:
@@ -428,7 +425,6 @@ class BundleSdf:
       self.bundler.checkAndAddKeyframe(frame)   # First frame is always keyframe
       self.bundler._frames[frame._id] = frame
       return
-
     min_match_with_ref = self.cfg_track["feature_corres"]["min_match_with_ref"]
 
     self.find_corres([(frame, ref_frame)])
@@ -540,10 +536,12 @@ class BundleSdf:
 
     logging.info(f"processNewFrame start {frame._id_str}")
     # self.bundler.processNewFrame(frame)
+    # breakpoint()
     self.process_new_frame(frame)
     logging.info(f"processNewFrame done {frame._id_str}")
 
     if self.bundler._keyframes[-1]==frame:
+      # breakpoint()
       logging.info(f"{frame._id_str} prepare data for nerf")
 
       with self.lock:
@@ -580,7 +578,7 @@ class BundleSdf:
           # logging.info(f"wait for sync len(self.bundler._keyframes):{len(self.bundler._keyframes)}, nerf_num_frames:{nerf_num_frames}")
           continue
         break
-
+    # breakpoint()
     rematch_after_nerf = self.cfg_track["feature_corres"]["rematch_after_nerf"]
     logging.info(f"rematch_after_nerf: {rematch_after_nerf}")
     frames_large_update = []
@@ -759,11 +757,12 @@ class BundleSdf:
     mesh = largest
     mesh.export(f'{self.debug_dir}/mesh_cleaned.obj')
 
-    if get_texture:
-      mesh = nerf.mesh_texture_from_train_images(mesh, rgbs_raw=rgbs_raw, train_texture=False, tex_res=tex_res)
+    # if get_texture:
+    #   mesh = nerf.mesh_texture_from_train_images(mesh, rgbs_raw=rgbs_raw, train_texture=False, tex_res=tex_res)
 
     mesh = mesh_to_real_world(mesh, pose_offset=offset, translation=self.cfg_nerf['translation'], sc_factor=self.cfg_nerf['sc_factor'])
     mesh.export(f'{self.debug_dir}/textured_mesh.obj')
+    print(f"Mesh saved to {self.debug_dir}/textured_mesh.obj")
 
 
 
