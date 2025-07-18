@@ -66,38 +66,35 @@ def run_one_video(video_dir='/home/bowen/debug/2022-11-18-15-10-24_milk', out_fo
 
   tracker = BundleSdf(cfg_track_dir=cfg_track_dir, cfg_nerf_dir=cfg_nerf_dir, start_nerf_keyframes=5, use_gui=use_gui)
 
-  reader = YcbineoatReader(video_dir=video_dir, shorter_side=480)
+  # reader = YcbineoatReader(video_dir=video_dir, shorter_side=480)
 
+  color_files = sorted(glob.glob(f"{video_dir}/rgb/*.png"))
+  K = np.loadtxt(f'{video_dir}/cam_K.txt').reshape(3,3)
 
-  for i in range(0,len(reader.color_files),args.stride):
-    color_file = reader.color_files[i]
+  for i in range(0,len(color_files),args.stride):
+    color_file = color_files[i]
     color = cv2.imread(color_file)
     H0, W0 = color.shape[:2]
-    depth = reader.get_depth(i)
+    depth = cv2.imread(color_files[i].replace('rgb','depth'),-1)/1e3
+    depth = cv2.resize(depth, (W0,H0), interpolation=cv2.INTER_NEAREST)
+
     H,W = depth.shape[:2]
     color = cv2.resize(color, (W,H), interpolation=cv2.INTER_NEAREST)
     depth = cv2.resize(depth, (W,H), interpolation=cv2.INTER_NEAREST)
 
-    if i==0:
-      mask = reader.get_mask(0)
-      mask = cv2.resize(mask, (W,H), interpolation=cv2.INTER_NEAREST)
-      if use_segmenter:
-        mask = segmenter.run(color_file.replace('rgb','masks'))
-    else:
-      if use_segmenter:
-        mask = segmenter.run(color_file.replace('rgb','masks'))
-      else:
-        mask = reader.get_mask(i)
-        mask = cv2.resize(mask, (W,H), interpolation=cv2.INTER_NEAREST)
+    mask = cv2.imread(color_files[i].replace('rgb','masks'),-1)
+    if len(mask.shape)==3:
+      mask = (mask.sum(axis=-1)>0).astype(np.uint8)
+    mask = cv2.resize(mask, (W0,H0), interpolation=cv2.INTER_NEAREST)
 
     if cfg_bundletrack['erode_mask']>0:
       kernel = np.ones((cfg_bundletrack['erode_mask'], cfg_bundletrack['erode_mask']), np.uint8)
       mask = cv2.erode(mask.astype(np.uint8), kernel)
 
-    id_str = reader.id_strs[i]
+    # id_str = reader.id_strs[i]
+    id_str = os.path.basename(color_file).replace('.png','')
     pose_in_model = np.eye(4)
 
-    K = reader.K.copy()
 
     tracker.run(color, depth, K, id_str, mask=mask, occ_mask=None, pose_in_model=pose_in_model)
 
@@ -154,57 +151,6 @@ def run_one_video_global_nerf(out_folder='/home/bowen/debug/bundlesdf_scan_coffe
   print(f"Done")
 
 
-def postprocess_mesh(out_folder):
-  mesh_files = sorted(glob.glob(f'{out_folder}/**/nerf/*normalized_space.obj',recursive=True))
-  print(f"Using {mesh_files[-1]}")
-  os.makedirs(f"{out_folder}/mesh/",exist_ok=True)
-
-  print(f"\nSaving meshes to {out_folder}/mesh/\n")
-
-  mesh = trimesh.load(mesh_files[-1])
-  with open(f'{os.path.dirname(mesh_files[-1])}/config.yml','r') as ff:
-    cfg = yaml.load(ff)
-  tf = np.eye(4)
-  tf[:3,3] = cfg['translation']
-  tf1 = np.eye(4)
-  tf1[:3,:3] *= cfg['sc_factor']
-  tf = tf1@tf
-  mesh.apply_transform(np.linalg.inv(tf))
-  mesh.export(f"{out_folder}/mesh/mesh_real_scale.obj")
-
-  components = trimesh_split(mesh, min_edge=1000)
-  best_component = None
-  best_size = 0
-  for component in components:
-    dists = np.linalg.norm(component.vertices,axis=-1)
-    if len(component.vertices)>best_size:
-      best_size = len(component.vertices)
-      best_component = component
-  mesh = trimesh_clean(best_component)
-
-  mesh.export(f"{out_folder}/mesh/mesh_biggest_component.obj")
-  mesh = trimesh.smoothing.filter_laplacian(mesh,lamb=0.5, iterations=3, implicit_time_integration=False, volume_constraint=True, laplacian_operator=None)
-  mesh.export(f'{out_folder}/mesh/mesh_biggest_component_smoothed.obj')
-
-
-
-def draw_pose():
-  K = np.loadtxt(f'{args.out_folder}/cam_K.txt').reshape(3,3)
-  color_files = sorted(glob.glob(f'{args.out_folder}/color/*'))
-  mesh = trimesh.load(f'{args.out_folder}/textured_mesh.obj')
-  to_origin, extents = trimesh.bounds.oriented_bounds(mesh)
-  bbox = np.stack([-extents/2, extents/2], axis=0).reshape(2,3)
-  out_dir = f'{args.out_folder}/pose_vis'
-  os.makedirs(out_dir, exist_ok=True)
-  logging.info(f"Saving to {out_dir}")
-  for color_file in color_files:
-    color = imageio.imread(color_file)
-    pose = np.loadtxt(color_file.replace('.png','.txt').replace('color','ob_in_cam'))
-    pose = pose@np.linalg.inv(to_origin)
-    vis = draw_posed_3d_box(K, color, ob_in_cam=pose, bbox=bbox, line_color=(255,255,0))
-    id_str = os.path.basename(color_file).replace('.png','')
-    imageio.imwrite(f'{out_dir}/{id_str}.png', vis)
-
 
 
 if __name__=="__main__":
@@ -215,14 +161,7 @@ if __name__=="__main__":
   parser.add_argument('--use_segmenter', type=int, default=0)
   parser.add_argument('--use_gui', type=int, default=1)
   parser.add_argument('--stride', type=int, default=1, help='interval of frames to run; 1 means using every frame')
-  parser.add_argument('--debug_level', type=int, default=1, help='higher means more logging')
+  parser.add_argument('--debug_level', type=int, default=2, help='higher means more logging')
   args = parser.parse_args()
 
-  if args.mode=='run_video':
-    run_one_video(video_dir=args.video_dir, out_folder=args.out_folder, use_segmenter=args.use_segmenter, use_gui=args.use_gui)
-  elif args.mode=='global_refine':
-    run_one_video_global_nerf(out_folder=args.out_folder)
-  elif args.mode=='draw_pose':
-    draw_pose()
-  else:
-    raise RuntimeError
+  run_one_video(video_dir=args.video_dir, out_folder=args.out_folder, use_segmenter=args.use_segmenter, use_gui=args.use_gui)

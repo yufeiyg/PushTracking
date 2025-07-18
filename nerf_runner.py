@@ -859,6 +859,7 @@ class NerfRunner:
       if iter%(self.N_iters//10)==0:
         logging.info(f'train progress {iter}/{self.N_iters}')
       batch = next(self.data_loader)
+      # breakpoint()
       self.train_loop(batch.cuda())
       self.global_step += 1
 

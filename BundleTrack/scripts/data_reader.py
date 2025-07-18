@@ -28,6 +28,7 @@ class YcbineoatReader:
     for color_file in self.color_files:
       id_str = os.path.basename(color_file).replace('.png','')
       self.id_strs.append(id_str)
+    # breakpoint()
     self.H,self.W = cv2.imread(self.color_files[0]).shape[:2]
 
     if shorter_side is not None:
