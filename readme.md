@@ -1,13 +1,12 @@
 ## BundleSDF for Push Anything
-1. Step 1: take a video of the object. You will be prompted to draw one mask of the object. Please put the object on the table at the end, in its upright position
+1. Step 1: take a video of the object. You will be prompted to draw one mask of the object. Please put the object on the table at the end, in its upright position, and the object axis should be aligned with the world coordinate axis.
 ```
 python live_demo.py
 ```
-2. Step 2: run BundleSDF on the object. video_dir is the where step 1 is saved. out_folder is where debug info will be saved. This step also reorients the reconstructed mesh and fill up any holes
+2. Step 2: run BundleSDF and tracking on the object. video_dir is the where step 1 is saved. out_folder is where BundleSDF debug info will be saved. This step also reorients the reconstructed mesh and fill up any holes. To get the FoundationPose estimation, refer to the foundationPose/
 ```
-python run_custom.py --mode run_video --video_dir /home/yufeiyang/Documents/BundleSDF/live_data/ --out_folder /home/yufeiyang/Documents/BundleSDF/debug_output/ --use_segmenter 1 --use_gui 1 --debug_level 2
+python run_custom.py --video_dir /home/yufeiyang/Documents/BundleSDF/live_data/ --out_folder /home/yufeiyang/Documents/BundleSDF/debug_output/ --use_segmenter 1 --use_gui 1 --debug_level 2
 ```
-3. Run FoundationPose
 
 # BundleSDF: Neural 6-DoF Tracking and 3D Reconstruction of Unknown Objects
 

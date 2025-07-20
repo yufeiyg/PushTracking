@@ -48,7 +48,8 @@ vis = meshcat.Visualizer().open()
 vis.delete()  # Clear the scene
 
 
-trimesh_mesh.apply_transform(world_T_object)
+trimesh_mesh.apply_transform((world_T_object))
+
 trimesh_mesh.apply_translation(-trimesh_mesh.centroid)
 
 # Create a MeshCat mesh object from Trimesh geometry
@@ -71,5 +72,6 @@ print("Is the mesh watertight?", fixed_mesh.is_watertight)
 # Set the object in MeshCat
 vis["object"].set_object(meshcat_mesh, g.MeshLambertMaterial(color=0x00FF00))
 vis["object"].set_transform(np.eye(4))
+breakpoint()
 # export the mesh
 fixed_mesh.export('auto_rotate_mesh.obj')
