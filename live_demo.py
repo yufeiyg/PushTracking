@@ -2,6 +2,7 @@ import pyrealsense2 as rs
 from PIL import Image
 import cv2
 import os
+import click
 
 # # from inference.data.mask_mapper import MaskMapper
 # from bundlesdf import BundleSdf
@@ -45,20 +46,22 @@ def process_depth(depth_image, mask):
     masked_depth = depth_image * (mask > 0).astype(depth_image.dtype)
     return masked_depth
 
-if __name__ == "__main__":
+@click.command()
+@click.option('--name', type=str)
+def main(name):
     print("Starting the camera stream...")
     pipeline = rs.pipeline()
     config = rs.config()
     config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
     config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
     # breakpoint()
-    pipeline.start(config)
+    profile = pipeline.start(config)
     align_to = rs.stream.color
     align = rs.align(align_to)
     code_dir = os.path.dirname(os.path.realpath(__file__))
     
     out_folder = "/home/yufeiyang/Documents/BundleSDF/live_output"
-    live_data = "/home/yufeiyang/Documents/BundleSDF/live_data"
+    live_data = f"/home/yufeiyang/Documents/BundleSDF/live_data/{name}"
     rgb_path = os.path.join(live_data, "rgb")
     os.system(f'rm -rf {rgb_path} && mkdir -p {rgb_path}')
     depth_path = os.path.join(live_data, "depth")
@@ -66,7 +69,17 @@ if __name__ == "__main__":
     mask_path = os.path.join(live_data, "masks")
     os.system(f'rm -rf {mask_path} && mkdir -p {mask_path}')
     cam_k_path = os.path.join(live_data, "cam_K.txt")
-    K = np.loadtxt(cam_k_path).reshape(3, 3)
+    # get intrinsics
+    color_stream = profile.get_stream(rs.stream.color)
+    intr = color_stream.as_video_stream_profile().get_intrinsics()
+    K = np.array([
+        [intr.fx, 0, intr.ppx],
+        [0, intr.fy, intr.ppy],
+        [0, 0, 1]
+    ])
+    np.savetxt(cam_k_path, K)
+
+    # K = np.loadtxt(cam_k_path).reshape(3, 3)
     # breakpoint()
     frame_idx = 1
     mask_done = False
@@ -255,3 +268,6 @@ if __name__ == "__main__":
     finally:
         pipeline.stop()
         cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    main()

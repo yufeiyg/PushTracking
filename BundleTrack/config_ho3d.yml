@@ -37,7 +37,7 @@ bundle:
   window_size: 5  #exclude keyframes, include new frame
   max_BA_frames: 10
   subset_selection_method: normal_orientation_nearest
-  depth_association_radius: 5  # 0: findDenseCorr; 1: findDenseCorrNearestNeighbor3D
+  depth_association_radius: 1  # 0: findDenseCorr; 1: findDenseCorrNearestNeighbor3D
   non_neighbor_max_rot: 90
   non_neighbor_min_visible: 0.1   # ratio of pixel visible
   icp_pose_rot_thres: 60    # Rotation larger than XX deg is ignored for icp

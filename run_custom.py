@@ -24,7 +24,7 @@ sys.path.append("/home/yufeiyang/Documents/FoundationPose")
 from mask import *
 from estimater import *
 from datareader import *
-
+code_dir = os.path.dirname(os.path.realpath(__file__))
 
 def run_one_video(video_dir='/home/bowen/debug/2022-11-18-15-10-24_milk', out_folder='/home/bowen/debug/bundlesdf_2022-11-18-15-10-24_milk/', use_segmenter=False, use_gui=False):
   set_seed(0)
@@ -155,7 +155,7 @@ def run_one_video_global_nerf(out_folder='/home/bowen/debug/bundlesdf_scan_coffe
   cfg_nerf_dir = f"{cfg_nerf['datadir']}/config.yml"
   yaml.dump(cfg_nerf, open(cfg_nerf_dir,'w'))
 
-  reader = YcbineoatReader(video_dir=args.video_dir, downscale=1)
+  reader = YcbineoatReader(video_dir=f"{args.video_dir}/{args.object_name}", downscale=1)
 
   tracker = BundleSdf(cfg_track_dir=cfg_track_dir, cfg_nerf_dir=cfg_nerf_dir, start_nerf_keyframes=5)
   tracker.cfg_nerf = cfg_nerf
@@ -227,7 +227,7 @@ def load_matrix_from_txt(path):
         raise ValueError(f"File {path} does not contain a 4x4 matrix.")
     return data.reshape(4, 4)
 
-def rotate_fill_mesh(out_folder, world_T_cam):
+def rotate_fill_mesh(out_folder, world_T_cam, obj_name):
   raw_mesh_path = f'{out_folder}/textured_mesh.obj'
   pose_folder = f'{out_folder}/ob_in_cam'
   pose_files = sorted(glob.glob(os.path.join(pose_folder, "*.txt")), key=numerical_sort)
@@ -270,14 +270,14 @@ def rotate_fill_mesh(out_folder, world_T_cam):
   vis["object"].set_object(meshcat_mesh, g.MeshLambertMaterial(color=0x00FF00))
   vis["object"].set_transform(np.eye(4))
   # export the mesh
-  fixed_mesh.export('auto_rotate_mesh.obj')
+  fixed_mesh.export(f'{obj_name}.obj')
 
-def tracking(world_T_cam, cam_K):
-  mesh_file = f"auto_rotate_mesh.obj"
+def tracking(world_T_cam, cam_K, obj_name):
+  mesh_file = f"{obj_name}.obj"
   mesh = trimesh.load(mesh_file, force='mesh')
   debug = 1
   est_refine_iter = 5
-  debug_dir = f"{code_dir}/foundationPose"
+  debug_dir = f"{code_dir}/foundationPose/{obj_name}"
   track_refine_iter = 2
   os.system(f'rm -rf {debug_dir}/* && mkdir -p {debug_dir}/track_vis {debug_dir}/ob_in_cam')
 
@@ -428,22 +428,24 @@ def tracking(world_T_cam, cam_K):
 
 if __name__=="__main__":
   parser = argparse.ArgumentParser()
-  parser.add_argument('--mode', type=str, default="run_video", help="run_video/global_refine/draw_pose")
   parser.add_argument('--video_dir', type=str, default="/home/bowen/debug/2022-11-18-15-10-24_milk/")
   parser.add_argument('--out_folder', type=str, default="/home/bowen/debug/bundlesdf_2022-11-18-15-10-24_milk")
   parser.add_argument('--use_segmenter', type=int, default=0)
   parser.add_argument('--use_gui', type=int, default=1)
   parser.add_argument('--stride', type=int, default=1, help='interval of frames to run; 1 means using every frame')
   parser.add_argument('--debug_level', type=int, default=1, help='higher means more logging')
+  parser.add_argument('--object_name', type=str, help='object name for Foundation Pose')
   args = parser.parse_args()
   world_T_cam = np.array([[-0.10225815, -0.6250423, 0.77386394, -0.27],
                           [-0.99248708, 0.11664051, -0.03693756, 0.],
                           [-0.06717635, -0.77182713, -0.63227385, 0.35],
                           [0., 0., 0., 1.]])
-  cam_k = np.loadtxt(f'{args.video_dir}/cam_K.txt').reshape(3,3)
-  # run_one_video(video_dir=args.video_dir, out_folder=args.out_folder, use_segmenter=args.use_segmenter, use_gui=args.use_gui)
-  # rotate_fill_mesh(out_folder=args.out_folder, world_T_cam=world_T_cam)
+  vid_dir = f'{args.video_dir}/{args.object_name}'
+  out_dir = f'{args.out_folder}/{args.object_name}'
+  cam_k = np.loadtxt(f'{vid_dir}/cam_K.txt').reshape(3,3)
+  # run_one_video(video_dir=vid_dir, out_folder=out_dir, use_segmenter=args.use_segmenter, use_gui=args.use_gui)
+  # rotate_fill_mesh(out_folder=out_dir, world_T_cam=world_T_cam, obj_name=args.object_name)
 
   # Foundation Pose
-  tracking(world_T_cam, cam_k)
+  tracking(world_T_cam, cam_k, args.object_name)
 
