@@ -107,11 +107,11 @@ def run_one_video(video_dir='/home/bowen/debug/2022-11-18-15-10-24_milk', out_fo
 
   tracker.on_finish()
 
-  run_one_video_global_nerf(out_folder=out_folder)
+  run_one_video_global_nerf(video_dir, out_folder=out_folder)
 
 
 
-def run_one_video_global_nerf(out_folder='/home/bowen/debug/bundlesdf_scan_coffee_415'):
+def run_one_video_global_nerf(video_dir, out_folder='/home/bowen/debug/bundlesdf_scan_coffee_415'):
   set_seed(0)
 
   out_folder += '/'   #!NOTE there has to be a / in the end
@@ -148,7 +148,7 @@ def run_one_video_global_nerf(out_folder='/home/bowen/debug/bundlesdf_scan_coffe
   cfg_nerf_dir = f"{cfg_nerf['datadir']}/config.yml"
   yaml.dump(cfg_nerf, open(cfg_nerf_dir,'w'))
 
-  reader = YcbineoatReader(video_dir=f"{args.video_dir}/{args.object_name}", downscale=1)
+  reader = YcbineoatReader(video_dir=f"{video_dir}/{args.object_name}", downscale=1)
 
   tracker = BundleSdf(cfg_track_dir=cfg_track_dir, cfg_nerf_dir=cfg_nerf_dir, start_nerf_keyframes=5)
   tracker.cfg_nerf = cfg_nerf
@@ -190,15 +190,13 @@ def postprocess_mesh(out_folder):
   mesh = trimesh.smoothing.filter_laplacian(mesh,lamb=0.5, iterations=3, implicit_time_integration=False, volume_constraint=True, laplacian_operator=None)
   mesh.export(f'{out_folder}/mesh/mesh_biggest_component_smoothed.obj')
 
-
-
-def draw_pose():
-  K = np.loadtxt(f'{args.out_folder}/cam_K.txt').reshape(3,3)
-  color_files = sorted(glob.glob(f'{args.out_folder}/color/*'))
-  mesh = trimesh.load(f'{args.out_folder}/textured_mesh.obj')
+def draw_pose(out_folder):
+  K = np.loadtxt(f'{out_folder}/cam_K.txt').reshape(3,3)
+  color_files = sorted(glob.glob(f'{out_folder}/color/*'))
+  mesh = trimesh.load(f'{out_folder}/textured_mesh.obj')
   to_origin, extents = trimesh.bounds.oriented_bounds(mesh)
   bbox = np.stack([-extents/2, extents/2], axis=0).reshape(2,3)
-  out_dir = f'{args.out_folder}/pose_vis'
+  out_dir = f'{out_folder}/pose_vis'
   os.makedirs(out_dir, exist_ok=True)
   logging.info(f"Saving to {out_dir}")
   for color_file in color_files:
@@ -267,7 +265,6 @@ def rotate_fill_mesh(out_folder, world_T_cam, obj_name):
 
 if __name__=="__main__":
   parser = argparse.ArgumentParser()
-  parser.add_argument('--video_dir', type=str, default="/home/bowen/debug/2022-11-18-15-10-24_milk/")
   parser.add_argument('--out_folder', type=str, default="/home/bowen/debug/bundlesdf_2022-11-18-15-10-24_milk")
   parser.add_argument('--use_segmenter', type=int, default=0)
   parser.add_argument('--use_gui', type=int, default=1)
@@ -279,8 +276,10 @@ if __name__=="__main__":
                           [-0.99248708, 0.11664051, -0.03693756, 0.],
                           [-0.06717635, -0.77182713, -0.63227385, 0.35],
                           [0., 0., 0., 1.]])
-  vid_dir = f'{args.video_dir}/{args.object_name}'
-  out_dir = f'{args.out_folder}/{args.object_name}'
+  video_dir = f"{code_dir}/live_data/"
+  out_folder = f"{code_dir}/debug_output/"
+  vid_dir = f'{video_dir}/{args.object_name}'
+  out_dir = f'{out_folder}/{args.object_name}'
   cam_k = np.loadtxt(f'{vid_dir}/cam_K.txt').reshape(3,3)
   run_one_video(video_dir=vid_dir, out_folder=out_dir, use_segmenter=args.use_segmenter, use_gui=args.use_gui)
   rotate_fill_mesh(out_folder=out_dir, world_T_cam=world_T_cam, obj_name=args.object_name)

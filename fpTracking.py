@@ -20,6 +20,17 @@ code_dir = os.path.dirname(os.path.realpath(__file__))
 def tracking(world_T_cam, cam_K, obj_name):
   mesh_file = f"{obj_name}.obj"
   mesh = trimesh.load(mesh_file, force='mesh')
+  # rotate the mesh to align with the world coordinate system
+# # Define rotation angle in degrees
+#   angle_deg = 180
+#   angle_rad = np.deg2rad(angle_deg)
+#   # Create rotation matrix around Z axis
+#   rotation_matrix = trimesh.transformations.rotation_matrix(
+#       angle_rad,  # angle in radians
+#      [0, 1, 0],  # axis of rotation (Z-axis)
+#       point=[0, 0, 0]  # rotation around origin
+#   )
+#   mesh.apply_transform(rotation_matrix)
   debug = 1
   est_refine_iter = 5
   debug_dir = f"{code_dir}/foundationPose/{obj_name}"
@@ -146,7 +157,6 @@ def tracking(world_T_cam, cam_K, obj_name):
         else:
             pose = est.track_one(rgb=color, depth=depth, K=cam_K,
                                  iteration=track_refine_iter)
-
         os.makedirs(f'{debug_dir}/ob_in_cam', exist_ok=True)
         np.savetxt(f'{debug_dir}/ob_in_cam/{i}.txt', pose.reshape(4,4))
         print("save to " + f'{debug_dir}/ob_in_cam/{i}.txt')
@@ -154,8 +164,9 @@ def tracking(world_T_cam, cam_K, obj_name):
         cam_to_object = pose
         obj_pose_in_world = world_T_cam @ cam_to_object
         lcm_pose_publisher.publish_pose(obj_name, obj_pose_in_world)
-    
+        center_pose = pose@np.linalg.inv(to_origin)
         if keep_gui_window_open:
+            vis = draw_posed_3d_box(cam_K, img=color, ob_in_cam=center_pose, bbox=bbox)
             vis = draw_xyz_axis(color, ob_in_cam=pose, scale=0.1, K=cam_K, thickness=3, transparency=0, is_input_rgb=True)
             cv2.imshow("debug", vis[...,::-1])
             key = cv2.waitKey(1)
@@ -179,9 +190,10 @@ if __name__ == "__main__":
                             [-0.06717635, -0.77182713, -0.63227385, 0.35],
                             [0., 0., 0., 1.]])
     parser = argparse.ArgumentParser()
-    parser.add_argument('--video_dir', type=str, default="/home/bowen/debug/2022-11-18-15-10-24_milk/")
+    # parser.add_argument('--video_dir', type=str, default="/home/bowen/debug/2022-11-18-15-10-24_milk/")
     parser.add_argument('--object_name', type=str, help='object name for Foundation Pose')
     args = parser.parse_args()
-    vid_dir = f'{args.video_dir}/{args.object_name}'
+    video_dir = f"{code_dir}/live_data/"
+    vid_dir = f'{video_dir}/{args.object_name}'
     cam_k = np.loadtxt(f'{vid_dir}/cam_K.txt').reshape(3,3)
     tracking(world_T_cam, cam_k, args.object_name)

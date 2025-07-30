@@ -5,12 +5,12 @@ python live_demo.py --name A_shape
 ```
 2. Step 2: run BundleSDF. video_dir is the where step 1 is saved. out_folder is where BundleSDF debug info will be saved. This step also reorients the reconstructed mesh and fill up any holes. object_name should be the same as "name" in step 1.
 ```
-python run_custom.py --video_dir /home/yufeiyang/Documents/BundleSDF/live_data/ --out_folder /home/yufeiyang/Documents/BundleSDF/debug_output/ --use_segmenter 1 --use_gui 1 --debug_level 2 --object_name A_shape
+python run_custom.py --use_segmenter 1 --use_gui 1 --debug_level 2 --object_name A_shape
 ```
 
 3. Step 3: run FoundationPose. The object state will be published to the "{object_name}_STATE" channel in lcm.
 ```
-python fpTracking.py --video_dir /home/yufeiyang/Documents/BundleSDF/live_data/ --object_name A_shape
+python fpTracking.py --object_name A_shape
 ```
 
 # BundleSDF: Neural 6-DoF Tracking and 3D Reconstruction of Unknown Objects
