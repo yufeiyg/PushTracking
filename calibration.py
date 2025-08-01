@@ -23,14 +23,14 @@ import file_utils
 
 
 COMPUTE_EXTRINSICS = True
-SHOW_INTRINSICS = True
-RECORD_RGBD_IMAGE = True
+SHOW_INTRINSICS = False
+RECORD_RGBD_IMAGE = False
 
 
 # Hard-coded world position in the board frame.
-BOARD_T_WORLD = np.array([[0, 0, 1, 0.0082],
-                          [1, 0, 0, -0.09355],
-                          [0, 1, 0, -0.18656],
+BOARD_T_WORLD = np.array([[1, 0, 0, 0.],
+                          [0, 1, 0, -0.27],
+                          [0, 0, 1, 0],
                           [0, 0, 0, 1]])
 # Hard-coded point at (x = against the Franka board, y=0, and z=table height),
 # represented in world frame.
@@ -75,7 +75,7 @@ if COMPUTE_EXTRINSICS:
 
     # Aruco tag definitions.
     aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_5X5_50)
-    board = aruco.CharucoBoard((12,9), 0.03, 0.023, aruco_dict)
+    board = aruco.CharucoBoard((12,9), 0.03, 0.022, aruco_dict)
     charuco_detector_params = aruco.CharucoParameters()
     charuco_detector_params.cameraMatrix = camera_matrix
     charuco_detector_params.distCoeffs = distortion_coefficients
@@ -126,14 +126,14 @@ if COMPUTE_EXTRINSICS:
         C_T_W[:3, 3:],
         0.08
     )
-    image_debug_viz = cv2.drawFrameAxes(
-        image_debug_viz,
-        camera_matrix,
-        distortion_coefficients,
-        C_T_P[:3, :3],
-        C_T_P[:3, 3:],
-        0.08
-    )
+    # image_debug_viz = cv2.drawFrameAxes(
+    #     image_debug_viz,
+    #     camera_matrix,
+    #     distortion_coefficients,
+    #     C_T_P[:3, :3],
+    #     C_T_P[:3, 3:],
+    #     0.08
+    # )
     # Show the debug image in window.
     plt.imshow(image_debug_viz[:, :, ::-1])
     plt.savefig(get_filepath('debug_image.png'), dpi=300)
