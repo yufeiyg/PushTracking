@@ -13,6 +13,31 @@ python run_custom.py --use_segmenter 1 --use_gui 1 --debug_level 2 --object_name
 python fpTracking.py --object_name A_shape
 ```
 
+# Docker setup
+- BundleSDF setup: Do the Docker/Environment setup below
+(Optiional) These are required for my 4049 GPU. Do this if you have error message like `GLIBCXX_3.4.29' not found
+```
+apt-get update
+apt-get install -y software-properties-common
+add-apt-repository ppa:ubuntu-toolchain-r/test
+apt-get update
+apt-get install -y libstdc++6
+```
+- Install XMem:
+```
+git clone https://github.com/hkchengrex/XMem.git
+cd XMem (where your XMem is cloned)
+pip install requirements.txt
+pip install pyrealsense2
+pip install yacs
+```
+- Install FoundationPose. They provided the requirement.txt, but installing everything in the requirement.txt messed up the BundleSDF packages
+```
+pip install fvcore==0.1.5.post20221221
+python -m pip install --quiet --no-cache-dir git+https://github.com/NVlabs/nvdiffrast.git
+python -m pip install --quiet --no-index --no-cache-dir pytorch3d -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py39_cu118_pyt200/download.html
+```
+
 # BundleSDF: Neural 6-DoF Tracking and 3D Reconstruction of Unknown Objects
 
 This is an implementation of our paper published in CVPR 2023

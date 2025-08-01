@@ -148,7 +148,7 @@ def run_one_video_global_nerf(video_dir, out_folder='/home/bowen/debug/bundlesdf
   cfg_nerf_dir = f"{cfg_nerf['datadir']}/config.yml"
   yaml.dump(cfg_nerf, open(cfg_nerf_dir,'w'))
 
-  reader = YcbineoatReader(video_dir=f"{video_dir}/{args.object_name}", downscale=1)
+  reader = YcbineoatReader(video_dir=f"{video_dir}", downscale=1)
 
   tracker = BundleSdf(cfg_track_dir=cfg_track_dir, cfg_nerf_dir=cfg_nerf_dir, start_nerf_keyframes=5)
   tracker.cfg_nerf = cfg_nerf
@@ -265,22 +265,22 @@ def rotate_fill_mesh(out_folder, world_T_cam, obj_name):
 
 if __name__=="__main__":
   parser = argparse.ArgumentParser()
-  parser.add_argument('--out_folder', type=str, default="/home/bowen/debug/bundlesdf_2022-11-18-15-10-24_milk")
   parser.add_argument('--use_segmenter', type=int, default=0)
   parser.add_argument('--use_gui', type=int, default=1)
   parser.add_argument('--stride', type=int, default=1, help='interval of frames to run; 1 means using every frame')
   parser.add_argument('--debug_level', type=int, default=1, help='higher means more logging')
   parser.add_argument('--object_name', type=str, help='object name for Foundation Pose')
   args = parser.parse_args()
-  world_T_cam = np.array([[-0.10225815, -0.6250423, 0.77386394, -0.27],
-                          [-0.99248708, 0.11664051, -0.03693756, 0.],
-                          [-0.06717635, -0.77182713, -0.63227385, 0.35],
+  world_T_cam = np.array([[0.0450185, -0.56897425,  0.82112218, -0.17861106],
+                          [0.99886136,  0.01264526, -0.04600097,  0.42306624],
+                          [0.01579006,  0.82225811,  0.56889567, -0.301949  ],
                           [0., 0., 0., 1.]])
   video_dir = f"{code_dir}/live_data/"
-  out_folder = f"{code_dir}/debug_output/"
+  out_folder = f"{code_dir}/debug_output"
   vid_dir = f'{video_dir}/{args.object_name}'
   out_dir = f'{out_folder}/{args.object_name}'
   cam_k = np.loadtxt(f'{vid_dir}/cam_K.txt').reshape(3,3)
   run_one_video(video_dir=vid_dir, out_folder=out_dir, use_segmenter=args.use_segmenter, use_gui=args.use_gui)
+  # run_one_video_global_nerf(vid_dir, out_folder=out_dir)
   rotate_fill_mesh(out_folder=out_dir, world_T_cam=world_T_cam, obj_name=args.object_name)
 
