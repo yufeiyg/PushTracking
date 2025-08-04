@@ -60,82 +60,82 @@ import pymeshfix
     
     # return thick_surface
 
-def duplicate_top_to_bottom(mesh, thickness=0.05, angle_thresh_degrees=10, epsilon=0.005):
-    # 1. Group faces by normal similarity
-    face_normals = mesh.face_normals
-    angle_thresh_cos = np.cos(np.radians(angle_thresh_degrees))
-    groups = []
-    used = np.zeros(len(face_normals), dtype=bool)
+# def duplicate_top_to_bottom(mesh, thickness=0.05, angle_thresh_degrees=10, epsilon=0.005):
+#     # 1. Group faces by normal similarity
+#     face_normals = mesh.face_normals
+#     angle_thresh_cos = np.cos(np.radians(angle_thresh_degrees))
+#     groups = []
+#     used = np.zeros(len(face_normals), dtype=bool)
 
-    for i, n_i in enumerate(face_normals):
-        if used[i]:
-            continue
-        group = [i]
-        used[i] = True
-        for j in range(i + 1, len(face_normals)):
-            if used[j]:
-                continue
-            n_j = face_normals[j]
-            if np.dot(n_i, n_j) > angle_thresh_cos:
-                group.append(j)
-                used[j] = True
-        groups.append(group)
+#     for i, n_i in enumerate(face_normals):
+#         if used[i]:
+#             continue
+#         group = [i]
+#         used[i] = True
+#         for j in range(i + 1, len(face_normals)):
+#             if used[j]:
+#                 continue
+#             n_j = face_normals[j]
+#             if np.dot(n_i, n_j) > angle_thresh_cos:
+#                 group.append(j)
+#                 used[j] = True
+#         groups.append(group)
 
-    # 2. Pick largest group by total face area
-    largest_group = max(groups, key=lambda g: mesh.area_faces[g].sum())
-    flat_faces = mesh.faces[largest_group]
-    flat_face_indices = np.unique(flat_faces)
+#     # 2. Pick largest group by total face area
+#     largest_group = max(groups, key=lambda g: mesh.area_faces[g].sum())
+#     flat_faces = mesh.faces[largest_group]
+#     flat_face_indices = np.unique(flat_faces)
 
-    # 3. Filter out outlier vertices not lying on the main surface plane
-    flat_vertices = mesh.vertices[flat_face_indices]
-    normal = face_normals[largest_group].mean(axis=0)
-    normal /= np.linalg.norm(normal)
-    centroid = flat_vertices.mean(axis=0)
-    distances = np.dot(flat_vertices - centroid, normal)
-    inlier_mask = np.abs(distances) < epsilon
-    flat_face_indices = flat_face_indices[inlier_mask]
-    flat_vertices = mesh.vertices[flat_face_indices]
+#     # 3. Filter out outlier vertices not lying on the main surface plane
+#     flat_vertices = mesh.vertices[flat_face_indices]
+#     normal = face_normals[largest_group].mean(axis=0)
+#     normal /= np.linalg.norm(normal)
+#     centroid = flat_vertices.mean(axis=0)
+#     distances = np.dot(flat_vertices - centroid, normal)
+#     inlier_mask = np.abs(distances) < epsilon
+#     flat_face_indices = flat_face_indices[inlier_mask]
+#     flat_vertices = mesh.vertices[flat_face_indices]
 
-    # 4. Create bottom layer
-    bottom_vertices = flat_vertices - thickness * normal
-    bottom_start_index = len(mesh.vertices)
-    new_vertices = np.vstack([mesh.vertices, bottom_vertices])
+#     # 4. Create bottom layer
+#     bottom_vertices = flat_vertices - thickness * normal
+#     bottom_start_index = len(mesh.vertices)
+#     new_vertices = np.vstack([mesh.vertices, bottom_vertices])
 
-    # 5. Create bottom faces (reversed winding)
-    bottom_faces = []
-    for face in flat_faces:
-        try:
-            indices = [np.where(flat_face_indices == v)[0][0] for v in face]
-            bottom_face = [bottom_start_index + idx for idx in indices]
-            bottom_faces.append(bottom_face[::-1])
-        except IndexError:
-            continue  # skip if any vertex was filtered out
+#     # 5. Create bottom faces (reversed winding)
+#     bottom_faces = []
+#     for face in flat_faces:
+#         try:
+#             indices = [np.where(flat_face_indices == v)[0][0] for v in face]
+#             bottom_face = [bottom_start_index + idx for idx in indices]
+#             bottom_faces.append(bottom_face[::-1])
+#         except IndexError:
+#             continue  # skip if any vertex was filtered out
 
-    # 6. Build side faces (connect top and bottom edges)
-    edge_set = set()
-    for face in flat_faces:
-        for i in range(3):
-            a, b = face[i], face[(i + 1) % 3]
-            edge = tuple(sorted((a, b)))
-            edge_set.add(edge)
+#     # 6. Build side faces (connect top and bottom edges)
+#     edge_set = set()
+#     for face in flat_faces:
+#         for i in range(3):
+#             a, b = face[i], face[(i + 1) % 3]
+#             edge = tuple(sorted((a, b)))
+#             edge_set.add(edge)
 
-    side_faces = []
-    for a, b in edge_set:
-        try:
-            ia = np.where(flat_face_indices == a)[0][0]
-            ib = np.where(flat_face_indices == b)[0][0]
-        except IndexError:
-            continue  # skip if vertex was filtered out
-        a_bot = bottom_start_index + ia
-        b_bot = bottom_start_index + ib
-        side_faces.append([a, b, b_bot])
-        side_faces.append([a, b_bot, a_bot])
+#     side_faces = []
+#     for a, b in edge_set:
+#         try:
+#             ia = np.where(flat_face_indices == a)[0][0]
+#             ib = np.where(flat_face_indices == b)[0][0]
+#         except IndexError:
+#             continue  # skip if vertex was filtered out
+#         a_bot = bottom_start_index + ia
+#         b_bot = bottom_start_index + ib
+#         side_faces.append([a, b, b_bot])
+#         side_faces.append([a, b_bot, a_bot])
         
 
-    # 7. Combine all faces
-    new_faces = np.vstack([mesh.faces, bottom_faces, side_faces])
+#     # 7. Combine all faces
+#     new_faces = np.vstack([mesh.faces, bottom_faces, side_faces])
 
-    return trimesh.Trimesh(vertices=new_vertices, faces=new_faces, process=False)
+#     return trimesh.Trimesh(vertices=new_vertices, faces=new_faces, process=False)
 
 
 # mve mesh to the origin

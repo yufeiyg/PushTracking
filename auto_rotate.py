@@ -34,7 +34,7 @@ def axis_angle_to_quat(axis_angle):
 
 def inspect_camera_poses_and_images():
     """Plot the camera locations in 3D."""
-    translation = np.array([-0.33, 0, 0.35])
+    translation = np.array([-0.33, 0.18, 0.35])
     axis_angles = np.array([np.deg2rad(-90), np.deg2rad(103), np.deg2rad(-45)]) # TODO change this 
 
     world = np.array([0, 0, 0]).reshape(1, 3)

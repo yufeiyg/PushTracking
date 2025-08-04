@@ -271,16 +271,19 @@ if __name__=="__main__":
   parser.add_argument('--debug_level', type=int, default=1, help='higher means more logging')
   parser.add_argument('--object_name', type=str, help='object name for Foundation Pose')
   args = parser.parse_args()
-  world_T_cam = np.array([[0.0450185, -0.56897425,  0.82112218, -0.17861106],
-                          [0.99886136,  0.01264526, -0.04600097,  0.42306624],
-                          [0.01579006,  0.82225811,  0.56889567, -0.301949  ],
+# [[-0.10225815 -0.6250423   0.77386394 -0.33      ]
+#  [-0.99248708  0.11664051 -0.03693756  0.18      ]
+#  [-0.06717635 -0.77182713 -0.63227385  0.35      ]
+#  [ 0.          0.          0.          1.        ]]
+  world_T_cam = np.array([[-0.10225815, -0.6250423, 0.77386394, -0.33],
+                          [-0.99248708, 0.11664051, -0.03693756, 0.18],
+                          [-0.06717635, -0.77182713, -0.63227385, 0.35],
                           [0., 0., 0., 1.]])
   video_dir = f"{code_dir}/live_data/"
   out_folder = f"{code_dir}/debug_output"
   vid_dir = f'{video_dir}/{args.object_name}'
   out_dir = f'{out_folder}/{args.object_name}'
   cam_k = np.loadtxt(f'{vid_dir}/cam_K.txt').reshape(3,3)
-  run_one_video(video_dir=vid_dir, out_folder=out_dir, use_segmenter=args.use_segmenter, use_gui=args.use_gui)
+  # run_one_video(video_dir=vid_dir, out_folder=out_dir, use_segmenter=args.use_segmenter, use_gui=args.use_gui)
   # run_one_video_global_nerf(vid_dir, out_folder=out_dir)
   rotate_fill_mesh(out_folder=out_dir, world_T_cam=world_T_cam, obj_name=args.object_name)
-

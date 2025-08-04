@@ -13,7 +13,7 @@ python run_custom.py --use_segmenter 1 --use_gui 1 --debug_level 2 --object_name
 python fpTracking.py --object_name A_shape
 ```
 
-# Docker setup
+## Docker setup
 - BundleSDF setup: Do the Docker/Environment setup below
 (Optiional) These are required for my 4049 GPU. Do this if you have error message like `GLIBCXX_3.4.29' not found
 ```
