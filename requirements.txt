@@ -1,0 +1,5 @@
+pyrealsense2
+lcm
+python -m pip install --quiet --no-cache-dir git+https://github.com/NVlabs/nvdiffrast.git
+omegaconf==2.3.0
+h5py==3.10.0

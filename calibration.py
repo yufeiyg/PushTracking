@@ -27,17 +27,14 @@ SHOW_INTRINSICS = False
 RECORD_RGBD_IMAGE = False
 
 
-# Hard-coded world position in the board frame.
-BOARD_T_WORLD = np.array([[1, 0, 0, 0.],
-                          [0, 1, 0, -0.27],
-                          [0, 0, 1, 0],
-                          [0, 0, 0, 1]])
-# Hard-coded point at (x = against the Franka board, y=0, and z=table height),
-# represented in world frame.
+BOARD_T_WORLD = np.array([[0, -1, 0, -0.077],
+                         [-1, 0, 0, 0.695],
+                         [0, 0, -1, -0.022],
+                         [0, 0, 0, 1]])
 WORLD_T_POINT = np.array([[1, 0, 0, 0.07855],
-                          [0, 1, 0, 0],
-                          [0, 0, 1, -0.0282],
-                          [0, 0, 0, 1]])
+                         [0, 1, 0, 0],
+                         [0, 0, 1, -0.0282],
+                         [0, 0, 0, 1]])
 
 
 TIMESTAMP = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
@@ -126,14 +123,14 @@ if COMPUTE_EXTRINSICS:
         C_T_W[:3, 3:],
         0.08
     )
-    # image_debug_viz = cv2.drawFrameAxes(
-    #     image_debug_viz,
-    #     camera_matrix,
-    #     distortion_coefficients,
-    #     C_T_P[:3, :3],
-    #     C_T_P[:3, 3:],
-    #     0.08
-    # )
+    image_debug_viz = cv2.drawFrameAxes(
+        image_debug_viz,
+        camera_matrix,
+        distortion_coefficients,
+        C_T_P[:3, :3],
+        C_T_P[:3, 3:],
+        0.08
+    )
     # Show the debug image in window.
     plt.imshow(image_debug_viz[:, :, ::-1])
     plt.savefig(get_filepath('debug_image.png'), dpi=300)
