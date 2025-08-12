@@ -5,12 +5,27 @@ import sys
 import lcm
 from lcm_sys.lcm_subscriber import FrankaJointSubscriber
 import click
-import os
+import os, glob
 from pydrake.all import (
     MultibodyPlant, Parser, RigidTransform
 )
+from pydrake.multibody.tree import JointIndex
 from pydrake.common import FindResourceOrThrow
+import matplotlib.pyplot as plt
+from cv2 import aruco
+
 code_dir = os.path.dirname(os.path.realpath(__file__))
+
+# TODO measure these
+BOARD_T_WORLD = np.array([[0, -1, 0, 0.381],
+                         [-1, 0, 0, 0.285], 
+                         [0, 0, -1, -0.021],
+                         [0, 0, 0, 1]])
+WORLD_T_POINT = np.array([[1, 0, 0, 0.07855],
+                         [0, 1, 0, 0],
+                         [0, 0, 1, -0.0282],
+                         [0, 0, 0, 1]])
+BOARD_SIDE = [0.021, 0.015]
 
 def process_depth(depth_image, mask):
     # Apply the mask to the depth image
@@ -142,52 +157,135 @@ def collect_data(name):
     joint_positions = np.array(joint_positions)
     np.save(joint_path, joint_positions)
 
-def get_transform(name):
-    joint_folder = f'{code_dir}/arm_data/{name}/joint_config.npy'
-    joint_angle = np.load(joint_folder)  # 5 by 7
-
-    # Ue pydrake forward kinematics to get the end effector position from joint positions
-    # Create a plant and load your robot
-
-    urdf_path = FindResourceOrThrow(
-        "drake/manipulation/models/franka_description/urdf/franka_panda.urdf"
-    )
-    plant = MultibodyPlant(time_step=0.0)
-    parser = Parser(plant)
-    parser.AddModelFromFile(urdf_path)  # or .sdf
-    plant.Finalize()
-
-    # Create a context
-    context = plant.CreateDefaultContext()
-
-    # Set joint positions (example: 5-DOF arm)
-    q = joint_angle[0]
+def drake_fk(joint_angle, plant, context):
+    # 3. Set the 7 joint positions
+    q = np.zeros(plant.num_positions())
+    q[0] = 1
+    q[-7:] = joint_angle[0]
     plant.SetPositions(context, q)
 
-    # Get frame of the end effector
-    end_effector_frame = plant.GetFrameByName("end_effector_link")  # change name accordingly
+    ee_body = plant.GetBodyByName("panda_link8")
 
-    # Compute pose of end effector in world frame
-    X_WE = plant.CalcRelativeTransform(
-        context,
-        frame_A=plant.world_frame(),
-        frame_B=end_effector_frame
+    # 5. Use EvalBodyPoseInWorld to get the transform
+    X_WE = plant.EvalBodyPoseInWorld(context, ee_body)
+
+    # 6. Extract the translation (position) component
+    ee_position = X_WE.translation()
+    ee_rotation = X_WE.rotation().matrix()
+    return ee_position, ee_rotation
+
+def get_transform(name, cam_T_W):
+    joint_folder = f'{code_dir}/arm_data/{name}/joint_config.npy'
+    joint_angle = np.load(joint_folder)  # 5 by 7
+    # Create MultibodyPlant and load the Franka URDF
+    plant = MultibodyPlant(time_step=0.0)
+    parser = Parser(plant)
+    parser.AddModelsFromUrl("package://drake_models/franka_description/urdf/panda_arm.urdf")  # adjust path
+    plant.Finalize()
+
+    context = plant.CreateDefaultContext()
+
+    # checking ee name
+    # for i in range(plant.num_joints()):
+    #     joint = plant.get_joint(JointIndex(i))
+    #     print(f"Joint {i}: name = {joint.name()}, num_positions = {joint.num_positions()}, position_start = {joint.position_start()}")
+
+    for i in range(joint_angle.shape[0]):
+        # print(f"Joint {i}: angle = {joint_angle[i]}")
+        ee_pos, ee_rot = drake_fk(joint_angle[i], plant, context)
+
+        print("End effector position in world frame:", ee_pos)
+        print("End effector rotation in world frame:", ee_rot)
+
+    """
+    First frame: calibration. T(ee_cam) = inv(T(W_ee)) inv(T(cam_W)) T(cam_W) is from calibration
+    Following frames: T(W_cam) = T(W_ee)T(ee_cam) T(W_ee) is from FK; T(cam_obj) = inv(T(W_cam))T(W_obj)
+    """
+
+def get_camEx(name):
+    data_folder = f'{code_dir}/arm_data/{name}'
+    rgb = sorted(glob. glob(os.path.join(data_folder, "rgb", "*.png")))
+    rgbImg = cv2.imread(rgb[0])
+
+    np_color_image_bgr = np.asanyarray(rgbImg)
+    np_color_image = np_color_image_bgr[:, :, ::-1]
+    plt.imshow(np_color_image)
+    plt.show()
+
+    camera_matrix = np.loadtxt(os.path.join(data_folder, "cam_K.txt"))
+    # TODO get the distortion coeffs
+    distortion_coefficients = 0
+    # Aruco tag definitions.
+    aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_5X5_50)
+    board = aruco.CharucoBoard((12,9), 0.03, 0.022, aruco_dict)
+    charuco_detector_params = aruco.CharucoParameters()
+    charuco_detector_params.cameraMatrix = camera_matrix
+    charuco_detector_params.distCoeffs = distortion_coefficients
+    charuco_detector = aruco.CharucoDetector(
+        board, charucoParams=charuco_detector_params)
+
+    # Get board pose.
+    charuco_corners, charuco_ids, marker_corners, marker_ids = \
+        charuco_detector.detectBoard(np_color_image_bgr)
+    if len(charuco_corners) == 0:
+        raise Exception('No charuco corners detected!')
+    obj_points, img_points = board.matchImagePoints(
+        charuco_corners, charuco_ids)
+
+    # Get the pose of the camera.
+    ret, rvec, tvec = cv2.solvePnP(
+        obj_points, img_points, camera_matrix, distortion_coefficients)
+    if not ret:
+        raise Exception('Could not solve PnP!')
+    
+    # Convert transformation matrix.
+    C_R_B, _ = cv2.Rodrigues(rvec)
+    C_T_B = np.concatenate((C_R_B, tvec), axis=1)
+    C_T_B = np.concatenate((C_T_B, np.array([[0, 0, 0, 1]])), axis=0)
+
+    # Define the board to world transformation.
+    B_T_W = BOARD_T_WORLD
+    C_T_W = C_T_B @ B_T_W
+
+    # Add a point against the Franka platform on the table surface.
+    W_T_P = WORLD_T_POINT
+    C_T_P = C_T_W @ W_T_P
+
+    # Debugging plot.
+    image_debug_viz = cv2.drawFrameAxes(
+        np_color_image_bgr,
+        camera_matrix,
+        distortion_coefficients,
+        C_T_B[:3, :3],
+        C_T_B[:3, 3:],
+        0.1
     )
-
-    # Extract translation (position)
-    position = X_WE.translation()
-    print("End effector position (world frame):", position)
-
-    # Extract rotation matrix
-    rotation_matrix = X_WE.rotation().matrix()
-    print("End effector rotation:\n", rotation_matrix)
-    return joint_angle
+    image_debug_viz = cv2.drawFrameAxes(
+        image_debug_viz,
+        camera_matrix,
+        distortion_coefficients,
+        C_T_W[:3, :3],
+        C_T_W[:3, 3:],
+        0.08
+    )
+    image_debug_viz = cv2.drawFrameAxes(
+        image_debug_viz,
+        camera_matrix,
+        distortion_coefficients,
+        C_T_P[:3, :3],
+        C_T_P[:3, 3:],
+        0.08
+    )
+    plt.imshow(image_debug_viz[:, :, ::-1])
+    plt.show()
+    return C_T_W
 
 @click.command()
 @click.option('--name', type=str)
 def main(name):
     # collect_data(name)
-    get_transform(name)
+    C_T_W = get_camEx(name)
+    get_transform(name, C_T_W)
 
 if __name__=="__main__":
     main()
