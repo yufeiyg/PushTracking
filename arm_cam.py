@@ -6,6 +6,10 @@ import lcm
 from lcm_sys.lcm_subscriber import FrankaJointSubscriber
 import click
 import os
+from pydrake.all import (
+    MultibodyPlant, Parser, RigidTransform
+)
+from pydrake.common import FindResourceOrThrow
 code_dir = os.path.dirname(os.path.realpath(__file__))
 
 def process_depth(depth_image, mask):
@@ -21,9 +25,7 @@ def get_serial_num():
         print("dev name:", dev.get_info(rs.camera_info.name))
         print("serial number:", dev.get_info(rs.camera_info.serial_number))
 
-@click.command()
-@click.option('--name', type=str)
-def main(name):
+def collect_data(name):
     # 037522250177 is tracking cam; 341222300913 is arm cam
     arm_serial = "341222300913"
     pipeline = rs.pipeline()
@@ -139,6 +141,53 @@ def main(name):
     # save the joint_info
     joint_positions = np.array(joint_positions)
     np.save(joint_path, joint_positions)
+
+def get_transform(name):
+    joint_folder = f'{code_dir}/arm_data/{name}/joint_config.npy'
+    joint_angle = np.load(joint_folder)  # 5 by 7
+
+    # Ue pydrake forward kinematics to get the end effector position from joint positions
+    # Create a plant and load your robot
+
+    urdf_path = FindResourceOrThrow(
+        "drake/manipulation/models/franka_description/urdf/franka_panda.urdf"
+    )
+    plant = MultibodyPlant(time_step=0.0)
+    parser = Parser(plant)
+    parser.AddModelFromFile(urdf_path)  # or .sdf
+    plant.Finalize()
+
+    # Create a context
+    context = plant.CreateDefaultContext()
+
+    # Set joint positions (example: 5-DOF arm)
+    q = joint_angle[0]
+    plant.SetPositions(context, q)
+
+    # Get frame of the end effector
+    end_effector_frame = plant.GetFrameByName("end_effector_link")  # change name accordingly
+
+    # Compute pose of end effector in world frame
+    X_WE = plant.CalcRelativeTransform(
+        context,
+        frame_A=plant.world_frame(),
+        frame_B=end_effector_frame
+    )
+
+    # Extract translation (position)
+    position = X_WE.translation()
+    print("End effector position (world frame):", position)
+
+    # Extract rotation matrix
+    rotation_matrix = X_WE.rotation().matrix()
+    print("End effector rotation:\n", rotation_matrix)
+    return joint_angle
+
+@click.command()
+@click.option('--name', type=str)
+def main(name):
+    # collect_data(name)
+    get_transform(name)
 
 if __name__=="__main__":
     main()
