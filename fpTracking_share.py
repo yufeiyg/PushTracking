@@ -196,6 +196,10 @@ if __name__ == "__main__":
     video_dir = f"{code_dir}/live_data/"
     vid_dir = f'{video_dir}/{args.object_name}'
     cam_k = np.loadtxt(f'{vid_dir}/cam_K.txt').reshape(3,3)
+    scale_x = 640 / 1280
+    scale_y = 480 / 800
+    cam_k[0, :] *= scale_x
+    cam_k[1, :] *= scale_y
     tracking(world_T_cam, cam_k, args.object_name)
   
     # consumer_main()
