@@ -48,7 +48,7 @@ def get_filepath(filename):
 if COMPUTE_EXTRINSICS:
     pipeline = rs.pipeline()
     config = rs.config()
-    config.enable_stream(rs.stream.color, 1280, 800, rs.format.bgr8, 30)
+    config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 15)
     pipeline.start(config)
 
     # Get the image a few times to allow auto-exposure to balance.
