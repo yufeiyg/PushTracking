@@ -206,6 +206,7 @@ def main(name):
 
                 ####
                 segment_mask = np.array(Image.open(os.path.join(mask_path, f"{frame_idx:05d}.png")))
+                breakpoint()
                 segment_mask = (segment_mask > 0).astype(np.uint8)
                 num_objects = len(np.unique(segment_mask)) - 1
                 processor = InferenceCore(network, config=config_file)

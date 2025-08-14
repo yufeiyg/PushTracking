@@ -5,8 +5,40 @@ import time
 import numpy as np
 import argparse
 import sys
-sys.path.append("/home/anything/workspace/FoundationPose")
-from mask import *
+
+
+sys.path.append("/home/yufeiyang/Documents/XMem")
+
+import torch
+from model.network import XMem
+from inference.inference_core import InferenceCore
+from inference.interact.interactive_utils import image_to_torch, index_numpy_to_one_hot_torch, torch_prob_to_numpy_mask
+
+torch.cuda.empty_cache()
+
+config_file = {
+    'top_k': 30,
+    'mem_every': 5,
+    'deep_update_every': -1,
+    'enable_long_term': True,
+    'enable_long_term_count_usage': True,
+    'num_prototypes': 128,
+    'min_mid_term_frames': 5,
+    'max_mid_term_frames': 10,
+    'max_long_term_elements': 10000,
+    'num_objects': 1,
+    }
+
+torch.autograd.set_grad_enabled(False)
+
+model = "/home/yufeiyang/Documents/BundleSDF/BundleTrack/XMem/saves/XMem-s012.pth"
+# Load our checkpoint
+network = XMem(config_file, model).cuda().eval()
+print("XMem model loaded")
+
+
+sys.path.append("/home/yufeiyang/Documents/FoundationPose")
+from mask_multi import *
 from lcm_systems.pose_publisher import PosePublisher
 from estimater import *
 from datareader import *
@@ -20,6 +52,29 @@ import socket
 
 code_dir = os.path.dirname(os.path.realpath(__file__))
 
+if torch.cuda.is_available():
+  est_device = 'cuda'
+else:
+  est_device = 'cpu'
+
+def check_downward(pose, cam_K):
+  # checking whether z is down
+  def project_3d_to_2d(pt,K,ob_in_cam):
+    pt = pt.reshape(4,1)
+    projected = K @ ((ob_in_cam@pt)[:3,:])
+    projected = projected.reshape(-1)
+    projected = projected/projected[2]
+    # breakpoint()
+    return projected.reshape(-1)[:2].round().astype(int)
+
+  zz = np.array([0,0,1,1]).astype(float)
+  zz[:3] = zz[:3]*0.1
+  origin = tuple(project_3d_to_2d(np.array([0,0,0,1]), cam_K, pose))
+  zz = tuple(project_3d_to_2d(zz, cam_K, pose))
+  if zz[1] > origin[1]:
+    return True
+  return False
+
 
 def tracking(world_T_cam, cam_K, obj_name):
   mesh_file = f"{obj_name}.obj"
@@ -28,7 +83,8 @@ def tracking(world_T_cam, cam_K, obj_name):
   est_refine_iter = 5
   debug_dir = f"{code_dir}/foundationPose/{obj_name}"
   track_refine_iter = 2
-  os.system(f'rm -rf {debug_dir}/* && mkdir -p {debug_dir}/track_vis {debug_dir}/ob_in_cam')
+  os.system(f'rm -rf {debug_dir}/* && mkdir -p {debug_dir}/track_vis {debug_dir}/ob_in_cam {debug_dir}/masks')
+  mask_path = os.path.join(debug_dir, "masks")
 
   to_origin, extents = trimesh.bounds.oriented_bounds(mesh)
   bbox = np.stack([-extents/2, extents/2], axis=0).reshape(2,3)
@@ -49,8 +105,16 @@ def tracking(world_T_cam, cam_K, obj_name):
   )
   logging.info("estimator initialization done")
 
-  create_mask()
-  mask = cv2.imread('mask.png')
+  create_mask("push_t_white")
+  mask = cv2.imread('push_t_white_mask.png')
+
+  # Initialize Xmem
+  s_mask = np.array(mask)
+  segment_mask = (mask > 0).astype(np.uint8)
+  num_objects = len(np.unique(segment_mask)) - 1
+  processor = InferenceCore(network, config=config_file)
+  processor.set_all_labels(range(1, num_objects+1)) # consecutive labels
+  segment_mask = segment_mask[:, :, 0]
 
   # Create a pipeline
   pipeline = rs.pipeline()
@@ -72,9 +136,11 @@ def tracking(world_T_cam, cam_K, obj_name):
   if not found_rgb:
       print("The demo requires Depth camera with Color sensor")
       exit(0)
+  num_frame = 30
+  config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, num_frame)
+  config.enable_stream(rs.stream.color, 640, 480, rs.format.rgb8, num_frame)
 
-  config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-  config.enable_stream(rs.stream.color, 640, 480, rs.format.rgb8, 30)
+  re_register_freq = num_frame * 60
   # Start streaming
   profile = pipeline.start(config)
 
@@ -131,6 +197,7 @@ def tracking(world_T_cam, cam_K, obj_name):
         depth = cv2.resize(depth_image_scaled, (W,H), interpolation=cv2.INTER_NEAREST)
         
         depth[(depth<0.1) | (depth>=np.inf)] = 0
+        frame_torch, _ = image_to_torch(color_image, device=est_device)
         if i == 0:
             if len(mask.shape)==3:
               for c in range(3):
@@ -141,23 +208,42 @@ def tracking(world_T_cam, cam_K, obj_name):
             pose = est.register(K=cam_K, rgb=color, depth=depth, ob_mask=mask,
                                 iteration=est_refine_iter)
             
-            if debug>=3:
-                m = mesh.copy()
-                m.apply_transform(pose)
-                m.export(f'{debug_dir}/model_tf.obj')
-                xyz_map = depth2xyzmap(depth, cam_K)
-                valid = depth>=0.1
-                pcd = toOpen3dCloud(xyz_map[valid], color[valid])
-                o3d.io.write_point_cloud(f'{debug_dir}/scene_complete.ply', pcd)
+            # breakpoint()
+            mask_torch = index_numpy_to_one_hot_torch(segment_mask, num_objects+1).to(est_device)
+            prediction = processor.step(frame_torch, mask_torch[1:])
+        elif i % re_register_freq == 0:
+            pose = est.register(K=cam_K, rgb=color, depth=depth, ob_mask=predicted_mask,
+                                iteration=est_refine_iter)
+            prediction = processor.step(frame_torch)
+            cv2.imwrite(os.path.join(mask_path, f"{i:05d}.png"), predicted_mask)
         else:
             pose = est.track_one(rgb=color, depth=depth, K=cam_K,
                                  iteration=track_refine_iter)
-        os.makedirs(f'{debug_dir}/ob_in_cam', exist_ok=True)
-        np.savetxt(f'{debug_dir}/ob_in_cam/{i}.txt', pose.reshape(4,4))
-        print("save to " + f'{debug_dir}/ob_in_cam/{i}.txt')
+            prediction = processor.step(frame_torch)
+        prediction = torch_prob_to_numpy_mask(prediction)
+        predicted_mask = prediction.astype(np.uint8) * 255
+
+        
+        cv2.imshow("mask", predicted_mask)
+        # os.makedirs(f'{debug_dir}/ob_in_cam', exist_ok=True)
+        # np.savetxt(f'{debug_dir}/ob_in_cam/{i}.txt', pose.reshape(4,4))
+        # print("save to " + f'{debug_dir}/ob_in_cam/{i}.txt')
+        if check_downward(pose, cam_K):
+          #  rotate pose by 180 degrees around the y axis
+          Rx_180 = np.array([
+              [1,  0,  0, 0],
+              [0, -1,  0, 0],
+              [0,  0, -1, 0],
+              [0,  0,  0, 1]
+          ], dtype=np.float32)
+
+          # T_y_180 = np.eye(4)
+          # T_y_180[:3, :3] = Rx_180
+          pose = pose @ Rx_180
 
         cam_to_object = pose
         obj_pose_in_world = world_T_cam @ cam_to_object
+        obj_pose_in_world[2, 3] = -0.0085
         lcm_pose_publisher.publish_pose(obj_name, obj_pose_in_world)
         center_pose = pose@np.linalg.inv(to_origin)
         if keep_gui_window_open:
@@ -168,12 +254,8 @@ def tracking(world_T_cam, cam_K, obj_name):
 
             if debug <= 1 and keep_gui_window_open and (key==ord("q")):
               cv2.destroyWindow("debug")
-              keep_gui_window_open = False
-
-        if debug>=2:
-            os.makedirs(f'{debug_dir}/track_vis', exist_ok=True)
-            imageio.imwrite(f'{debug_dir}/track_vis/{i}.png', vis)
-        
+              cv2.destroyWindow("mask")
+              keep_gui_window_open = False   
         i += 1
         print(f"duration: {time.perf_counter() - start_time}")
   finally:
@@ -207,7 +289,7 @@ def get_transform(base_path):
       print("No valid timestamp folders found.")
   calibration_mat = f'{base_path}/{newest}/color_tf_world.npy'
   world_T_cam = np.load(calibration_mat)
-  return world_T_cam
+  return np.linalg.inv(world_T_cam)
 
 
 if __name__ == "__main__":
@@ -215,7 +297,7 @@ if __name__ == "__main__":
     #                         [-0.99248708, 0.11664051, -0.03693756, 0.],
     #                         [-0.06717635, -0.77182713, -0.63227385, 0.35],
     #                         [0., 0., 0., 1.]])
-    world_T_cam = get_transform(base_path='/home/anything/workspace/ci_mpc_utils/calibrations')
+    world_T_cam = get_transform(base_path='/home/yufeiyang/Documents/ci_mpc_utils/calibrations')
     parser = argparse.ArgumentParser()
     # parser.add_argument('--video_dir', type=str, default="/home/bowen/debug/2022-11-18-15-10-24_milk/")
     parser.add_argument('--object_name', type=str, help='object name for Foundation Pose')

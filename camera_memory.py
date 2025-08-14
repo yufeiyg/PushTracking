@@ -17,7 +17,7 @@ META_NAME = "realsense_meta"  # Manager Namespace, not raw shm
 def create_camera_pipeline(width=640, height=480, fps=60):
     pipeline = rs.pipeline()
     cfg = rs.config()
-    cfg.enable_stream(rs.stream.color, width, height, rs.format.rgb8, fps)
+    cfg.enable_stream(rs.stream.color, width, height, rs.format.bgr8, fps)
     cfg.enable_stream(rs.stream.depth, width, height, rs.format.z16, fps)
     profile = pipeline.start(cfg)
     # Optionally align depth to color
@@ -25,6 +25,14 @@ def create_camera_pipeline(width=640, height=480, fps=60):
     align = rs.align(align_to)
     depth_sensor = profile.get_device().first_depth_sensor()
     depth_scale = depth_sensor.get_depth_scale()  #0.0010000000474974513
+    color_stream = profile.get_stream(rs.stream.color)
+    intr = color_stream.as_video_stream_profile().get_intrinsics()
+    K = np.array([
+        [intr.fx, 0, intr.ppx],
+        [0, intr.fy, intr.ppy],
+        [0, 0, 1]
+    ])
+
     return pipeline, align
 
 def create_shared_buffers(width, height, channels=3):
