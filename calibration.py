@@ -27,8 +27,8 @@ SHOW_INTRINSICS = False
 RECORD_RGBD_IMAGE = False
 
 
-BOARD_T_WORLD = np.array([[0, -1, 0, -0.077],
-                         [-1, 0, 0, 0.695],
+BOARD_T_WORLD = np.array([[1, 0, 0, -0.495],
+                         [0, -1, 0, 0.437],
                          [0, 0, -1, -0.022],
                          [0, 0, 0, 1]])
 WORLD_T_POINT = np.array([[1, 0, 0, 0.07855],

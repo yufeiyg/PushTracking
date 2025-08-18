@@ -5,7 +5,8 @@ import time
 import numpy as np
 import argparse
 import sys
-
+from multiprocessing import shared_memory, Lock, Process, Manager
+import multiprocessing
 
 sys.path.append("/home/yufeiyang/Documents/XMem")
 
@@ -37,7 +38,7 @@ network = XMem(config_file, model).cuda().eval()
 
 
 sys.path.append("/home/yufeiyang/Documents/FoundationPose")
-from mask_multi import *
+from mask import *
 from lcm_systems.pose_publisher import PosePublisher
 from estimater import *
 from datareader import *
@@ -74,16 +75,29 @@ def check_downward(pose, cam_K):
     return True
   return False
 
+def is_flipping_correct(prev_pose, flipped_pose):
+    def angle_between_axes(T1, T2, dir):
+        R1 = T1[:3,:3]
+        R2 = T2[:3,:3]
+        x1 = R1[:,dir] / np.linalg.norm(R1[:,dir])
+        x2 = R2[:,dir] / np.linalg.norm(R2[:,dir])
+        dot = np.clip(np.dot(x1, x2), -1.0, 1.0)
+        return np.arccos(dot)  # radians
+    x_diff = angle_between_axes(prev_pose, flipped_pose, 0)
+    y_diff = angle_between_axes(prev_pose, flipped_pose, 1)
+    if x_diff > np.pi / 3 or y_diff > np.pi / 3:
+        return False
+    return True
 
 # Shared memory names (choose unique names if you run multiple cameras)
 COLOR_SHM_NAME = "realsense_color_shm_v1"
 DEPTH_SHM_NAME = "realsense_depth_shm_v1"
 META_NAME = "realsense_meta"  # Manager Namespace, not raw shm
 depth_scale = 0.0010000000474974513
-
+MASK_GAP = 5
 
 def tracking(world_T_cam, cam_K, obj_name):
-    num_frame = 30
+    num_frame = 60
     re_register_freq = num_frame * 60
 
     mesh_file = f"{obj_name}.obj"
@@ -110,7 +124,7 @@ def tracking(world_T_cam, cam_K, obj_name):
     debug_dir=debug_dir,
     debug=debug,
     glctx=glctx,
-    hardcoded_initial_rot_mat=np.eye(3),
+    hardcoded_initial_rot_mat=None,
     )
     logging.info("estimator initialization done")
     try:
@@ -136,7 +150,7 @@ def tracking(world_T_cam, cam_K, obj_name):
     Estimating = True
     keep_gui_window_open = True
     time.sleep(3)
-    first_z = 0.
+    prev_pose = None
     try:
         while Estimating:
             start_time = time.perf_counter()
@@ -191,11 +205,13 @@ def tracking(world_T_cam, cam_K, obj_name):
             else:
                 pose = est.track_one(rgb=color, depth=depth, K=cam_K,
                                         iteration=track_refine_iter)
-                prediction = processor.step(frame_torch)
-            prediction = torch_prob_to_numpy_mask(prediction)
-            predicted_mask = prediction.astype(np.uint8) * 255
+                if i % MASK_GAP == 0:
+                    prediction = processor.step(frame_torch)
+            if i % MASK_GAP == 0 or i == 0 or i % re_register_freq == 0:
+                prediction = torch_prob_to_numpy_mask(prediction)
+                predicted_mask = prediction.astype(np.uint8) * 255
 
-            cv2.imshow(f"mask_{obj_name}", predicted_mask)
+            # cv2.imshow(f"mask_{obj_name}", predicted_mask)
             # os.makedirs(f'{debug_dir}/ob_in_cam', exist_ok=True)
             # np.savetxt(f'{debug_dir}/ob_in_cam/{i}.txt', pose.reshape(4,4))
             # print("save to " + f'{debug_dir}/ob_in_cam/{i}.txt')
@@ -208,10 +224,23 @@ def tracking(world_T_cam, cam_K, obj_name):
                     [0,  0, -1, 0],
                     [0,  0,  0, 1]
                 ], dtype=np.float32)
+                Ry_180 = np.array([
+                    [-1,  0,  0, 0],
+                    [0,  1,  0, 0],
+                    [0,  0, -1, 0],
+                    [0,  0,  0, 1]
+                ])
 
                 # T_y_180 = np.eye(4)
                 # T_y_180[:3, :3] = Rx_180
-                pose = pose @ Rx_180
+                flipped_pose = pose @ Rx_180 
+                if i > 0:
+                    if not is_flipping_correct(prev_pose, flipped_pose):
+                        flipped_pose = pose @ Ry_180
+                pose = flipped_pose
+                prev_pose = pose.copy()
+                # if is_aligned(flipped_pose, pose, world_T_cam):
+                #     pose = flipped_pose
             cam_to_object = pose.copy()
             obj_pose_in_world = world_T_cam @ cam_to_object
             obj_pose_in_world[2, 3] = -0.0085
@@ -226,7 +255,7 @@ def tracking(world_T_cam, cam_K, obj_name):
 
                 if debug <= 1 and keep_gui_window_open and (key==ord("q")):
                     cv2.destroyWindow("debug")
-                    cv2.destroyWindow(f"mask_{obj_name}")
+                    # cv2.destroyWindow(f"mask_{obj_name}")
                     keep_gui_window_open = False
             i += 1
             print(f"duration: {time.perf_counter() - start_time}")
@@ -267,10 +296,6 @@ def get_transform(base_path):
 
 
 if __name__ == "__main__":
-    # world_T_cam = np.array([[-0.10225815, -0.6250423, 0.77386394, -0.27],
-    #                         [-0.99248708, 0.11664051, -0.03693756, 0.],
-    #                         [-0.06717635, -0.77182713, -0.63227385, 0.35],
-    #                         [0., 0., 0., 1.]])
     world_T_cam = get_transform(base_path='/home/yufeiyang/Documents/ci_mpc_utils/calibrations')
     parser = argparse.ArgumentParser()
     # parser.add_argument('--video_dir', type=str, default="/home/bowen/debug/2022-11-18-15-10-24_milk/")
@@ -279,10 +304,6 @@ if __name__ == "__main__":
     video_dir = f"{code_dir}/live_data/"
     vid_dir = f'{video_dir}/{args.object_name}'
     cam_k = np.loadtxt(f'{vid_dir}/cam_K.txt').reshape(3,3)
-    scale_x = 640 / 1280
-    scale_y = 480 / 800
-    # cam_k[0, :] *= scale_x
-    # cam_k[1, :] *= scale_y
     tracking(world_T_cam, cam_k, args.object_name)
   
     # consumer_main()
