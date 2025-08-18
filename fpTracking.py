@@ -237,8 +237,6 @@ def tracking(world_T_cam, cam_K, obj_name):
               [0,  0,  0, 1]
           ], dtype=np.float32)
 
-          # T_y_180 = np.eye(4)
-          # T_y_180[:3, :3] = Rx_180
           pose = pose @ Rx_180
 
         cam_to_object = pose
