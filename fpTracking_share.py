@@ -167,9 +167,6 @@ def tracking(world_T_cam, cam_K, obj_name):
                 processor = InferenceCore(network, config=config_file)
                 processor.set_all_labels(range(1, num_objects+1)) # consecutive labels
                 segment_mask = segment_mask[:, :, 0]
-
-
-
             # Scale depth image to mm
             depth_image_scaled = (depth_image * depth_scale * 1000).astype(np.float32)
             if cv2.waitKey(1) == 13:
@@ -200,8 +197,6 @@ def tracking(world_T_cam, cam_K, obj_name):
                                     iteration=est_refine_iter)
                 prediction = processor.step(frame_torch)
                 # cv2.imwrite(os.path.join(mask_path, f"{i:05d}.png"), predicted_mask)
-
-
             else:
                 pose = est.track_one(rgb=color, depth=depth, K=cam_K,
                                         iteration=track_refine_iter)
@@ -239,8 +234,6 @@ def tracking(world_T_cam, cam_K, obj_name):
                         flipped_pose = pose @ Rx_180
                 pose = flipped_pose
             prev_pose = pose.copy()
-                # if is_aligned(flipped_pose, pose, world_T_cam):
-                #     pose = flipped_pose
             cam_to_object = pose.copy()
             obj_pose_in_world = world_T_cam @ cam_to_object
             obj_pose_in_world[2, 3] = -0.0085
@@ -300,7 +293,7 @@ if __name__ == "__main__":
     # parser.add_argument('--video_dir', type=str, default="/home/bowen/debug/2022-11-18-15-10-24_milk/")
     parser.add_argument('--object_name', type=str, help='object name for Foundation Pose')
     args = parser.parse_args()
-    video_dir = f"{code_dir}/live_data/"
+    video_dir = f"{code_dir}/live_data"
     vid_dir = f'{video_dir}/{args.object_name}'
     cam_k = np.loadtxt(f'{vid_dir}/cam_K.txt').reshape(3,3)
     tracking(world_T_cam, cam_k, args.object_name)
