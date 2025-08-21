@@ -17,14 +17,23 @@ from cv2 import aruco
 code_dir = os.path.dirname(os.path.realpath(__file__))
 
 # TODO measure these
-BOARD_T_WORLD = np.array([[0, -1, 0, 0.381],
-                         [-1, 0, 0, 0.285], 
-                         [0, 0, -1, -0.021],
+BOARD_T_WORLD = np.array([[0, -1, 0, -0.021],
+                         [-1, 0, 0, -0.012], 
+                         [0, 0, -1, 0],
                          [0, 0, 0, 1]])
 WORLD_T_POINT = np.array([[1, 0, 0, 0.07855],
                          [0, 1, 0, 0],
                          [0, 0, 1, -0.0282],
                          [0, 0, 0, 1]])
+BASE_T_W = np.array([[0, -1, 0, 0.075],
+                    [1, 0, 0, 0.0], 
+                    [0, 0, 1, -0.03048],
+                    [0, 0, 0, 1]])
+W_T_OBJ = np.array([[1, 0, 0, 0],
+                    [0, -1, 0, -0.402], 
+                    [0, 0, 1, 0],
+                    [0, 0, 0, 1]])
+
 BOARD_SIDE = [0.021, 0.015]
 
 def process_depth(depth_image, mask):
@@ -65,7 +74,7 @@ def collect_data(name):
     base_folder = f'{code_dir}/arm_data/{name}'
     rgb_path = os.path.join(base_folder, "rgb")
     os.system(f'rm -rf {rgb_path} && mkdir -p {rgb_path}')
-    depth_path = os.path.join(base_folder, "depth")
+    depth_path = os.path.join(base_folder, "depth_enhanced")
     os.system(f'rm -rf {depth_path} && mkdir -p {depth_path}')
     mask_path = os.path.join(base_folder, "mask")
     os.system(f'rm -rf {mask_path} && mkdir -p {mask_path}')
@@ -174,36 +183,43 @@ def drake_fk(joint_angle, plant, context):
     ee_rotation = X_WE.rotation().matrix()
     return ee_position, ee_rotation
 
-def get_transform(name, cam_T_W):
-    joint_folder = f'{code_dir}/arm_data/{name}/joint_config.npy'
+def get_transform(name, ee_T_cam):
+    joint_folder = f'{code_dir}/arm_data/{name}/ob_0000001/joint_config.npy'
+    output_folder = f'{code_dir}/arm_data/{name}/ob_0000001/cam_in_ob'
     joint_angle = np.load(joint_folder)  # 5 by 7
     # Create MultibodyPlant and load the Franka URDF
     plant = MultibodyPlant(time_step=0.0)
     parser = Parser(plant)
-    parser.AddModelsFromUrl("package://drake_models/franka_description/urdf/panda_arm.urdf")  # adjust path
+    parser.AddModelsFromUrl("package://drake_models/franka_description/urdf/panda_arm.urdf")
     plant.Finalize()
 
     context = plant.CreateDefaultContext()
 
-    # checking ee name
-    # for i in range(plant.num_joints()):
-    #     joint = plant.get_joint(JointIndex(i))
-    #     print(f"Joint {i}: name = {joint.name()}, num_positions = {joint.num_positions()}, position_start = {joint.position_start()}")
-
     for i in range(joint_angle.shape[0]):
         # print(f"Joint {i}: angle = {joint_angle[i]}")
         ee_pos, ee_rot = drake_fk(joint_angle[i], plant, context)
-
-        print("End effector position in world frame:", ee_pos)
-        print("End effector rotation in world frame:", ee_rot)
+        ee_T_Base = np.eye(4)
+        ee_T_Base[:3, :3] = ee_rot
+        ee_T_Base[:3, 3] = ee_pos
+        ee_T_world = ee_T_Base @ BASE_T_W
+        W_T_ee = np.linalg.inv(ee_T_world)
+        W_T_cam = W_T_ee @ ee_T_cam
+        cam_T_obj = np.linalg.inv(W_T_cam) @ W_T_OBJ  # cam_T_obj = cam_T_W @ W_T_OBJ
+        # save the cam_T_obj in a text file
+        np.savetxt(f'{output_folder}/{i:05d}.txt', np.linalg.inv(cam_T_obj))
 
     """
     First frame: calibration. T(ee_cam) = inv(T(W_ee)) inv(T(cam_W)) T(cam_W) is from calibration
     Following frames: T(W_cam) = T(W_ee)T(ee_cam) T(W_ee) is from FK; T(cam_obj) = inv(T(W_cam))T(W_obj)
     """
+    # W_T_ee = BASE_T_W @ ee_T_Base
 
-def get_camEx(name):
-    data_folder = f'{code_dir}/arm_data/{name}'
+def get_camEx():
+    '''
+    ee_T_cam = ee_T_world @ world_T_cam = ee_T_base @ inv(cam_T_world)
+    ee_T_world = ee_T_base @ base_T_world
+    '''
+    data_folder = f'{code_dir}/arm_data/calibration'
     rgb = sorted(glob. glob(os.path.join(data_folder, "rgb", "*.png")))
     rgbImg = cv2.imread(rgb[0])
 
@@ -248,9 +264,11 @@ def get_camEx(name):
     C_T_W = C_T_B @ B_T_W
 
     # Add a point against the Franka platform on the table surface.
-    W_T_P = WORLD_T_POINT
+    W_T_P = np.linalg.inv(BASE_T_W)
     C_T_P = C_T_W @ W_T_P
 
+    W_T_O = W_T_OBJ
+    C_T_O = C_T_W @ W_T_O
     # Debugging plot.
     image_debug_viz = cv2.drawFrameAxes(
         np_color_image_bgr,
@@ -276,16 +294,41 @@ def get_camEx(name):
         C_T_P[:3, 3:],
         0.08
     )
+    image_debug_viz = cv2.drawFrameAxes(
+        image_debug_viz,
+        camera_matrix,
+        distortion_coefficients,
+        C_T_O[:3, :3],
+        C_T_O[:3, 3:],
+        0.08
+    )
+
     plt.imshow(image_debug_viz[:, :, ::-1])
     plt.show()
-    return C_T_W
+    
+    # C_T_W is cam_T_world
+    joint_pos = np.load(os.path.join(data_folder, "joint_config.npy"))
+    plant = MultibodyPlant(time_step=0.0)
+    parser = Parser(plant)
+    parser.AddModelsFromUrl("package://drake_models/franka_description/urdf/panda_arm.urdf")  # adjust path
+    plant.Finalize()
+
+    context = plant.CreateDefaultContext()
+
+    ee_pos_0, ee_rot_0 = drake_fk(joint_pos, plant, context)
+    ee_T_Base = np.eye(4)
+    ee_T_Base[:3, :3] = ee_rot_0
+    ee_T_Base[:3, 3] = ee_pos_0
+    ee_T_W = ee_T_Base @ BASE_T_W  # ee_T_world = ee_T_base @ base_T_world
+    ee_T_cam = ee_T_W @ np.linalg.inv(C_T_W)  # ee_T_cam = ee_T_world @ world_T_cam
+    return ee_T_cam
 
 @click.command()
 @click.option('--name', type=str)
 def main(name):
     # collect_data(name)
-    C_T_W = get_camEx(name)
-    get_transform(name, C_T_W)
+    ee_T_cam = get_camEx()
+    get_transform(name, ee_T_cam)
 
 if __name__=="__main__":
     main()

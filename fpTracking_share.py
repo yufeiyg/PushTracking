@@ -94,13 +94,13 @@ COLOR_SHM_NAME = "realsense_color_shm_v1"
 DEPTH_SHM_NAME = "realsense_depth_shm_v1"
 META_NAME = "realsense_meta"  # Manager Namespace, not raw shm
 depth_scale = 0.0010000000474974513
-MASK_GAP = 5
+MASK_GAP = 15
 
 def tracking(world_T_cam, cam_K, obj_name):
     num_frame = 60
-    re_register_freq = num_frame * 60
+    re_register_freq = num_frame * 45
 
-    mesh_file = f"{obj_name}.obj"
+    mesh_file = f"{code_dir}/assets/{obj_name}.obj"
     mesh = trimesh.load(mesh_file, force='mesh')
     debug = 1
     est_refine_iter = 5
@@ -149,7 +149,7 @@ def tracking(world_T_cam, cam_K, obj_name):
     lcm_pose_publisher = PosePublisher(obj_name)
     Estimating = True
     keep_gui_window_open = True
-    time.sleep(3)
+    # time.sleep(3)
     prev_pose = None
     try:
         while Estimating:
@@ -159,7 +159,7 @@ def tracking(world_T_cam, cam_K, obj_name):
             depth_image = depth_buf.copy()/1e3
             if i == 0:
                 create_mask(color_image, obj_name)
-                mask = cv2.imread(f'mask_{obj_name}.png')
+                mask = cv2.imread(f'{code_dir}/assets/mask_{obj_name}.png')
                 # Initialize Xmem
                 s_mask = np.array(mask)
                 segment_mask = (mask > 0).astype(np.uint8)
@@ -199,7 +199,7 @@ def tracking(world_T_cam, cam_K, obj_name):
                 pose = est.register(K=cam_K, rgb=color, depth=depth, ob_mask=predicted_mask,
                                     iteration=est_refine_iter)
                 prediction = processor.step(frame_torch)
-                cv2.imwrite(os.path.join(mask_path, f"{i:05d}.png"), predicted_mask)
+                # cv2.imwrite(os.path.join(mask_path, f"{i:05d}.png"), predicted_mask)
 
 
             else:
@@ -233,12 +233,12 @@ def tracking(world_T_cam, cam_K, obj_name):
 
                 # T_y_180 = np.eye(4)
                 # T_y_180[:3, :3] = Rx_180
-                flipped_pose = pose @ Rx_180 
+                flipped_pose = pose @ Ry_180 
                 if i > 0:
                     if not is_flipping_correct(prev_pose, flipped_pose):
-                        flipped_pose = pose @ Ry_180
+                        flipped_pose = pose @ Rx_180
                 pose = flipped_pose
-                prev_pose = pose.copy()
+            prev_pose = pose.copy()
                 # if is_aligned(flipped_pose, pose, world_T_cam):
                 #     pose = flipped_pose
             cam_to_object = pose.copy()
@@ -258,7 +258,6 @@ def tracking(world_T_cam, cam_K, obj_name):
                     # cv2.destroyWindow(f"mask_{obj_name}")
                     keep_gui_window_open = False
             i += 1
-            print(f"duration: {time.perf_counter() - start_time}")
     finally:
         print("Tracking finished")
         # color_shm.close()
