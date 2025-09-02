@@ -84,6 +84,7 @@ def producer_main(width=640, height=480, fps=30):
     meta.timestamp = 0.0
     # breakpoint()
     color_shm, depth_shm = create_shared_buffers(width, height, channels=3)
+    
     # breakpoint()
     # Map numpy arrays to the shared buffers
     color_buf = np.ndarray((height, width, 3), dtype=np.uint8, buffer=color_shm.buf)

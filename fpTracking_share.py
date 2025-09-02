@@ -57,6 +57,9 @@ if torch.cuda.is_available():
 else:
   est_device = 'cpu'
 
+Z_OFFSET = 0.05
+Z_ORG = 0.01
+
 def check_downward(pose, cam_K):
   # checking whether z is down
   def project_3d_to_2d(pt,K,ob_in_cam):
@@ -75,7 +78,58 @@ def check_downward(pose, cam_K):
     return True
   return False
 
-def is_flipping_correct(prev_pose, flipped_pose):
+def check_triad_pos(pose, world_T_cam):
+    pose = world_T_cam @ pose
+    case = 'z up'
+    x_pos = pose[2, 0]
+    y_pos = pose[2, 1]
+    z_pos = pose[2, 2]
+    if z_pos < -Z_OFFSET:
+        case = "down"
+    elif z_pos < Z_OFFSET and z_pos > -Z_OFFSET:  # z is horizontal
+        if x_pos - Z_ORG > Z_OFFSET:
+            case = "x up"
+        elif y_pos - Z_ORG > Z_OFFSET:
+            case = "y up"
+        elif x_pos - Z_ORG < -Z_OFFSET:
+            case = "x down"
+        elif y_pos - Z_ORG < -Z_OFFSET:
+            case = "y down"
+    # breakpoint()
+    return case
+# def check_z_orientation(pose, cam_K):
+#   def project_3d_to_2d(pt,K,ob_in_cam):
+#     pt = pt.reshape(4,1)
+#     projected = K @ ((ob_in_cam@pt)[:3,:])
+#     projected = projected.reshape(-1)
+#     projected = projected/projected[2]
+#     # breakpoint()
+#     return projected.reshape(-1)[:2].round().astype(int)
+#   orientation = None
+#   xx = np.array([1,0,0,1]).astype(float)
+#   yy = np.array([0,1,0,1]).astype(float)
+#   zz = np.array([0,0,1,1]).astype(float)
+#   xx[:3] = xx[:3]*0.1
+#   yy[:3] = yy[:3]*0.1
+#   zz[:3] = zz[:3]*0.1
+#   origin = tuple(project_3d_to_2d(np.array([0,0,0,1]), cam_K, pose))
+#   xx = tuple(project_3d_to_2d(xx, cam_K, pose))
+#   yy = tuple(project_3d_to_2d(yy, cam_K, pose))
+#   zz = tuple(project_3d_to_2d(zz, cam_K, pose))
+#   triad_ends = np.array([xx, yy, zz])
+#   triad_ends.argmax(axis=0)
+# #   if zz[1] - origin[1] > Z_OFFSET:
+# #       z_orientation = "down"
+# #   elif origin[1] - zz[1] > Z_OFFSET:
+# #       z_orientation = "up"
+# #   elif zz[0] - origin[0] > Z_OFFSET:    # z end is larger than origin, on the right
+# #       z_orientation = "right"
+# #   elif origin[0] - zz[0] > Z_OFFSET:
+# #       z_orientation = "left"
+# #   return z_orientation
+
+
+def is_consistent(prev_pose, flipped_pose):
     def angle_between_axes(T1, T2, dir):
         R1 = T1[:3,:3]
         R2 = T2[:3,:3]
@@ -94,11 +148,22 @@ COLOR_SHM_NAME = "realsense_color_shm_v1"
 DEPTH_SHM_NAME = "realsense_depth_shm_v1"
 META_NAME = "realsense_meta"  # Manager Namespace, not raw shm
 depth_scale = 0.0010000000474974513
-MASK_GAP = 15
-
+MASK_GAP = 6
+Rx_180 = np.array([
+    [1,  0,  0, 0],
+    [0, -1,  0, 0],
+    [0,  0, -1, 0],
+    [0,  0,  0, 1]
+], dtype=np.float32)
+Ry_180 = np.array([
+    [-1,  0,  0, 0],
+    [0,  1,  0, 0],
+    [0,  0, -1, 0],
+    [0,  0,  0, 1]
+])
 def tracking(world_T_cam, cam_K, obj_name):
     num_frame = 60
-    re_register_freq = num_frame * 45
+    re_register_freq = num_frame * 60
 
     mesh_file = f"{code_dir}/assets/{obj_name}.obj"
     mesh = trimesh.load(mesh_file, force='mesh')
@@ -111,6 +176,7 @@ def tracking(world_T_cam, cam_K, obj_name):
 
     to_origin, extents = trimesh.bounds.oriented_bounds(mesh)
     bbox = np.stack([-extents/2, extents/2], axis=0).reshape(2,3)
+    z_height = extents[0]
     mesh_T = mesh.bounding_box_oriented.primitive.transform
     scorer = ScorePredictor()
     refiner = PoseRefinePredictor()
@@ -196,6 +262,9 @@ def tracking(world_T_cam, cam_K, obj_name):
                 pose = est.register(K=cam_K, rgb=color, depth=depth, ob_mask=predicted_mask,
                                     iteration=est_refine_iter)
                 prediction = processor.step(frame_torch)
+                # check if this is consistent with the previous frame
+                if not is_consistent(prev_pose, pose):
+                    pose = pose @ Rx_180
                 # cv2.imwrite(os.path.join(mask_path, f"{i:05d}.png"), predicted_mask)
             else:
                 pose = est.track_one(rgb=color, depth=depth, K=cam_K,
@@ -210,33 +279,70 @@ def tracking(world_T_cam, cam_K, obj_name):
             # os.makedirs(f'{debug_dir}/ob_in_cam', exist_ok=True)
             # np.savetxt(f'{debug_dir}/ob_in_cam/{i}.txt', pose.reshape(4,4))
             # print("save to " + f'{debug_dir}/ob_in_cam/{i}.txt')
-
+            # z_direction = check_z_orientation(pose, cam_K)
             if check_downward(pose, cam_K):
-                #  rotate pose by 180 degrees around the y axis
-                Rx_180 = np.array([
-                    [1,  0,  0, 0],
-                    [0, -1,  0, 0],
-                    [0,  0, -1, 0],
-                    [0,  0,  0, 1]
-                ], dtype=np.float32)
-                Ry_180 = np.array([
-                    [-1,  0,  0, 0],
-                    [0,  1,  0, 0],
-                    [0,  0, -1, 0],
-                    [0,  0,  0, 1]
-                ])
 
-                # T_y_180 = np.eye(4)
-                # T_y_180[:3, :3] = Rx_180
                 flipped_pose = pose @ Ry_180 
                 if i > 0:
-                    if not is_flipping_correct(prev_pose, flipped_pose):
+                    if not is_consistent(prev_pose, flipped_pose):
                         flipped_pose = pose @ Rx_180
                 pose = flipped_pose
+            case = check_triad_pos(pose, world_T_cam)
+            Rx_90 = np.array([
+                [1,  0,  0, 0],
+                [0,  0, -1, 0],
+                [0,  1,  0, 0],
+                [0,  0,  0, 1]
+            ], dtype=np.float32)
+            Ry_90 = np.array([
+                [0,  0,  1, 0],
+                [0,  1,  0, 0],
+                [-1, 0,  0, 0],
+                [0,  0,  0, 1]
+            ], dtype=np.float32)
+            Rx_minus_90 = np.array([
+                [1,  0,  0, 0],
+                [0,  0,  1, 0],
+                [0, -1,  0, 0],
+                [0,  0,  0, 1]
+            ], dtype=np.float32)
+            Ry_minus_90 = np.array([
+                [0,  0, -1, 0],
+                [0,  1,  0, 0],
+                [1,  0,  0, 0],
+                [0,  0,  0, 1]
+            ], dtype=np.float32)
+            Rz_180 = np.array([
+                [-1,  0,  0, 0],
+                [0,  -1,  0, 0],
+                [0,  0, 1, 0],
+                [0,  0,  0, 1]
+            ])
+
+
+            # breakpoint()
+            if case != "z up":
+                if case == "x up":
+                    #  x axis is point up
+                    pose = pose @ Ry_90
+                    pose = pose @ Rz_180
+                elif case == "x down":
+                    pose = pose @ Ry_minus_90
+                    pose = pose @ Rz_180
+                elif case == "y up":
+                    pose = pose @ Rx_minus_90
+                    pose = pose @ Rz_180
+                elif case == "y down":
+                    pose = pose @ Rx_90
+                    pose = pose @ Rz_180
+                # breakpoint()
+                # cam_to_object = pose.copy()
+                # obj_pose_in_world = world_T_cam @ cam_to_object
+
             prev_pose = pose.copy()
             cam_to_object = pose.copy()
             obj_pose_in_world = world_T_cam @ cam_to_object
-            obj_pose_in_world[2, 3] = -0.0085
+            obj_pose_in_world[2, 3] = z_height/2 -0.022
         
             lcm_pose_publisher.publish_pose(obj_name, obj_pose_in_world)
             center_pose = pose@np.linalg.inv(to_origin)

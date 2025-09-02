@@ -263,6 +263,36 @@ def rotate_fill_mesh(out_folder, world_T_cam, obj_name):
   # export the mesh
   fixed_mesh.export(f'{obj_name}.obj')
 
+def get_transform(base_path):
+    # check if this is a valid path
+    if os.path.exists(base_path):
+        print("Path exists.")
+    else:
+        raise NotADirectoryError(f"Path is not a directory: {base_path}")
+    folders = [
+        f for f in os.listdir(base_path)
+        # if os.path.isdir(os.path.join(base_path, f))
+        # and f[:19].count('-') == 5 and '_' in f
+    ]
+    # Parse folder names as datetime objects
+    folders_with_dates = []
+    for folder in folders:
+        try:
+            dt = datetime.datetime.strptime(folder[:19], "%Y-%m-%d_%H-%M-%S")
+            folders_with_dates.append((dt, folder))
+        except ValueError:
+            continue
+
+    # Find the newest one
+    if folders_with_dates:
+        newest = max(folders_with_dates)[1]
+        print("Newest folder:", newest)
+    else:
+        print("No valid timestamp folders found.")
+    calibration_mat = f'{base_path}/{newest}/color_tf_world.npy'
+    world_T_cam = np.load(calibration_mat)
+    return np.linalg.inv(world_T_cam)
+
 if __name__=="__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument('--use_segmenter', type=int, default=0)
@@ -271,10 +301,7 @@ if __name__=="__main__":
   parser.add_argument('--debug_level', type=int, default=1, help='higher means more logging')
   parser.add_argument('--object_name', type=str, help='object name for Foundation Pose')
   args = parser.parse_args()
-  world_T_cam = np.array([[-0.10225815, -0.6250423, 0.77386394, -0.33],
-                          [-0.99248708, 0.11664051, -0.03693756, 0.18],
-                          [-0.06717635, -0.77182713, -0.63227385, 0.35],
-                          [0., 0., 0., 1.]])
+  world_T_cam = get_transform(base_path='/home/yufeiyang/Documents/ci_mpc_utils/calibrations')  
   video_dir = f"{code_dir}/live_data/"
   out_folder = f"{code_dir}/debug_output"
   vid_dir = f'{video_dir}/{args.object_name}'

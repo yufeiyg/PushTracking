@@ -11,26 +11,28 @@ from pydrake.all import (
 )
 from pydrake.multibody.tree import JointIndex
 from pydrake.common import FindResourceOrThrow
+from pydrake.math import RigidTransform
 import matplotlib.pyplot as plt
 from cv2 import aruco
 
 code_dir = os.path.dirname(os.path.realpath(__file__))
 
 # TODO measure these
-BOARD_T_WORLD = np.array([[0, -1, 0, -0.021],
-                         [-1, 0, 0, -0.012], 
+# BOARD_T_WORLD = np.array([[1, 0, 0, -0.021],
+#                          [0, -1, 0, -0.012], 
+#                          [0, 0, -1, 0],
+#                          [0, 0, 0, 1]])
+BOARD_T_WORLD = np.array([[1, 0, 0, -0.396],
+                         [0, -1, 0, 0.436],
                          [0, 0, -1, 0],
                          [0, 0, 0, 1]])
-WORLD_T_POINT = np.array([[1, 0, 0, 0.07855],
-                         [0, 1, 0, 0],
-                         [0, 0, 1, -0.0282],
-                         [0, 0, 0, 1]])
-BASE_T_W = np.array([[0, -1, 0, 0.075],
-                    [1, 0, 0, 0.0], 
+
+BASE_T_W = np.array([[1, 0, 0, 0.075],
+                    [0, 1, 0, 0.], 
                     [0, 0, 1, -0.03048],
                     [0, 0, 0, 1]])
-W_T_OBJ = np.array([[1, 0, 0, 0],
-                    [0, -1, 0, -0.402], 
+W_T_OBJ = np.array([[1, 0, 0, 0.402],
+                    [0, 1, 0, 0], 
                     [0, 0, 1, 0],
                     [0, 0, 0, 1]])
 
@@ -168,67 +170,64 @@ def collect_data(name):
 
 def drake_fk(joint_angle, plant, context):
     # 3. Set the 7 joint positions
-    q = np.zeros(plant.num_positions())
-    q[0] = 1
-    q[-7:] = joint_angle[0]
-    plant.SetPositions(context, q)
-
+    plant_q = np.zeros(plant.num_positions())
+    plant_q[:7] = joint_angle
+    plant.SetPositions(context, plant_q)
+    
     ee_body = plant.GetBodyByName("panda_link8")
 
-    # 5. Use EvalBodyPoseInWorld to get the transform
-    X_WE = plant.EvalBodyPoseInWorld(context, ee_body)
-
-    # 6. Extract the translation (position) component
-    ee_position = X_WE.translation()
-    ee_rotation = X_WE.rotation().matrix()
-    return ee_position, ee_rotation
+    return plant.EvalBodyPoseInWorld(context, ee_body).GetAsMatrix4()
 
 def get_transform(name, ee_T_cam):
-    joint_folder = f'{code_dir}/arm_data/{name}/ob_0000001/joint_config.npy'
-    output_folder = f'{code_dir}/arm_data/{name}/ob_0000001/cam_in_ob'
+    joint_folder = f'{code_dir}/arm_data/{name}/joint_config.npy'
+    output_folder = f'{code_dir}/arm_data/{name}/cam_in_ob'
+    ee_output_folder = f'{code_dir}/arm_data/{name}/ee_pos'
+    os.system(f'rm -rf {output_folder} && mkdir -p {output_folder}')
+    os.system(f'rm -rf {ee_output_folder} && mkdir -p {ee_output_folder}')
     joint_angle = np.load(joint_folder)  # 5 by 7
     # Create MultibodyPlant and load the Franka URDF
     plant = MultibodyPlant(time_step=0.0)
     parser = Parser(plant)
-    parser.AddModelsFromUrl("package://drake_models/franka_description/urdf/panda_arm.urdf")
+    instance = parser.AddModelsFromUrl("package://drake_models/franka_description/urdf/panda_arm.urdf")
+    instance = instance[0]
+    plant.WeldFrames(plant.world_frame(), plant.GetFrameByName("panda_link0"), RigidTransform.Identity())
     plant.Finalize()
-
+    for body_index in plant.GetBodyIndices(instance):
+        body = plant.get_body(body_index)
+        print(body.name())        
     context = plant.CreateDefaultContext()
 
     for i in range(joint_angle.shape[0]):
-        # print(f"Joint {i}: angle = {joint_angle[i]}")
-        ee_pos, ee_rot = drake_fk(joint_angle[i], plant, context)
-        ee_T_Base = np.eye(4)
-        ee_T_Base[:3, :3] = ee_rot
-        ee_T_Base[:3, 3] = ee_pos
-        ee_T_world = ee_T_Base @ BASE_T_W
-        W_T_ee = np.linalg.inv(ee_T_world)
+        base_T_ee = drake_fk(joint_angle[i], plant, context)
+        ee_T_base = np.linalg.inv(base_T_ee)
+        ee_T_world = ee_T_base @ BASE_T_W  # this is correct
+        # np.savetxt(f'{ee_output_folder}/{i+1:05d}.txt', ee_T_world)
+        W_T_ee = np.linalg.inv(ee_T_world)  # this is correct
         W_T_cam = W_T_ee @ ee_T_cam
+        np.savetxt(f'{ee_output_folder}/{i+1:05d}.txt', W_T_ee)
         cam_T_obj = np.linalg.inv(W_T_cam) @ W_T_OBJ  # cam_T_obj = cam_T_W @ W_T_OBJ
-        # save the cam_T_obj in a text file
-        np.savetxt(f'{output_folder}/{i:05d}.txt', np.linalg.inv(cam_T_obj))
+        # save the obj_T_cam (cam_in_ob) in a text file
+        np.savetxt(f'{output_folder}/{i+1:05d}.txt', np.linalg.inv(cam_T_obj))
 
     """
-    First frame: calibration. T(ee_cam) = inv(T(W_ee)) inv(T(cam_W)) T(cam_W) is from calibration
     Following frames: T(W_cam) = T(W_ee)T(ee_cam) T(W_ee) is from FK; T(cam_obj) = inv(T(W_cam))T(W_obj)
     """
-    # W_T_ee = BASE_T_W @ ee_T_Base
 
-def get_camEx():
+def get_camEx(rgb_path, camera_matrix, joint_pos):
     '''
     ee_T_cam = ee_T_world @ world_T_cam = ee_T_base @ inv(cam_T_world)
     ee_T_world = ee_T_base @ base_T_world
     '''
-    data_folder = f'{code_dir}/arm_data/calibration'
-    rgb = sorted(glob. glob(os.path.join(data_folder, "rgb", "*.png")))
-    rgbImg = cv2.imread(rgb[0])
+    # data_folder = f'{code_dir}/arm_data/calibration_lsqr'
+    # rgb = sorted(glob. glob(os.path.join(data_folder, "rgb", "*.png")))
+    rgbImg = cv2.imread(rgb_path)
 
     np_color_image_bgr = np.asanyarray(rgbImg)
     np_color_image = np_color_image_bgr[:, :, ::-1]
-    plt.imshow(np_color_image)
-    plt.show()
+    # plt.imshow(np_color_image)
+    # plt.show()
 
-    camera_matrix = np.loadtxt(os.path.join(data_folder, "cam_K.txt"))
+    # camera_matrix = np.loadtxt(os.path.join(data_folder, "cam_K.txt"))
     # TODO get the distortion coeffs
     distortion_coefficients = 0
     # Aruco tag definitions.
@@ -264,8 +263,8 @@ def get_camEx():
     C_T_W = C_T_B @ B_T_W
 
     # Add a point against the Franka platform on the table surface.
-    W_T_P = np.linalg.inv(BASE_T_W)
-    C_T_P = C_T_W @ W_T_P
+    W_T_BASE = np.linalg.inv(BASE_T_W) # world_T_base
+    C_T_BASE = C_T_W @ W_T_BASE # camera_T_base
 
     W_T_O = W_T_OBJ
     C_T_O = C_T_W @ W_T_O
@@ -290,8 +289,8 @@ def get_camEx():
         image_debug_viz,
         camera_matrix,
         distortion_coefficients,
-        C_T_P[:3, :3],
-        C_T_P[:3, 3:],
+        C_T_BASE[:3, :3],
+        C_T_BASE[:3, 3:],
         0.08
     )
     image_debug_viz = cv2.drawFrameAxes(
@@ -307,27 +306,78 @@ def get_camEx():
     plt.show()
     
     # C_T_W is cam_T_world
-    joint_pos = np.load(os.path.join(data_folder, "joint_config.npy"))
+    world_T_cam = np.linalg.inv(C_T_W)
+    # joint_pos = np.load(os.path.join(data_folder, "joint_config.npy"))
     plant = MultibodyPlant(time_step=0.0)
     parser = Parser(plant)
-    parser.AddModelsFromUrl("package://drake_models/franka_description/urdf/panda_arm.urdf")  # adjust path
+    parser.AddModelsFromUrl("package://drake_models/franka_description/urdf/panda_arm.urdf")
+    plant.WeldFrames(plant.world_frame(), plant.GetFrameByName("panda_link0"), RigidTransform.Identity())
     plant.Finalize()
-
     context = plant.CreateDefaultContext()
-
-    ee_pos_0, ee_rot_0 = drake_fk(joint_pos, plant, context)
-    ee_T_Base = np.eye(4)
-    ee_T_Base[:3, :3] = ee_rot_0
-    ee_T_Base[:3, 3] = ee_pos_0
-    ee_T_W = ee_T_Base @ BASE_T_W  # ee_T_world = ee_T_base @ base_T_world
-    ee_T_cam = ee_T_W @ np.linalg.inv(C_T_W)  # ee_T_cam = ee_T_world @ world_T_cam
+    # breakpoint()
+    base_T_ee = drake_fk(joint_pos, plant, context)
+    ee_T_W = np.linalg.inv(base_T_ee) @ BASE_T_W  # ee_T_world = ee_T_base @ base_T_world
+    ee_T_cam = ee_T_W @ world_T_cam  # ee_T_cam = ee_T_world @ world_T_cam
+ 
     return ee_T_cam
+
+def camera_calibration():
+    data_folder = f'{code_dir}/arm_data/calibration_lsqr'
+    rgb = sorted(glob. glob(os.path.join(data_folder, "rgb", "*.png")))
+    joint_pos = np.load(os.path.join(data_folder, "joint_config.npy"))
+    camera_matrix = np.loadtxt(os.path.join(data_folder, "cam_K.txt"))
+    all_eeTcam = []
+    for i in range(len(rgb)):
+        ee_T_cam = get_camEx(rgb[i], camera_matrix, joint_pos[i])
+        all_eeTcam.append(ee_T_cam)
+    # run least squares optimization on all_eeTcam to get the most accurate transformation
+    matrices = np.array(all_eeTcam)  # (N, 4, 4)
+    assert matrices.shape[1:] == (4, 4), "Each matrix must be 4x4"
+
+    # --- Average translation ---
+    translations = matrices[:, :3, 3]
+    t_avg = np.mean(translations, axis=0)
+
+    # --- Average rotation (using SVD projection) ---
+    R_stack = matrices[:, :3, :3]
+    R_sum = np.sum(R_stack, axis=0)
+
+    # Project back to SO(3) with SVD
+    U, _, Vt = np.linalg.svd(R_sum)
+    R_avg = U @ Vt
+    if np.linalg.det(R_avg) < 0:  # fix improper rotation
+        U[:, -1] *= -1
+        R_avg = U @ Vt
+
+    # --- Rebuild transform ---
+    T_avg = np.eye(4)
+    T_avg[:3, :3] = R_avg
+    T_avg[:3, 3] = t_avg
+
+    # M = np.stack(all_eeTcam) 
+    # ee_T_cam = np.mean(M, axis=0)
+    return T_avg
 
 @click.command()
 @click.option('--name', type=str)
 def main(name):
     # collect_data(name)
-    ee_T_cam = get_camEx()
+    # First frame: calibration. T(ee_cam) = inv(T(W_ee)) inv(T(cam_W)) T(cam_W) is from calibration
+    # ee_T_cam = get_camEx()
+#     [[ 0.69766779 -0.00837756  0.71615637  0.04929139]
+#  [ 0.71616443  0.02286852 -0.69732234 -0.06149469]
+#  [-0.01057131  0.99959846  0.02187438  0.03163664]
+#  [ 0.          0.          0.          1.        ]]
+    # ee_T_cam = camera_calibration()
+    # print(ee_T_cam)
+    # ee_T_cam = np.array([[0.69766779, -0.00837756,  0.71615637,  0.04929139],
+    #                      [0.71616443,  0.02286852, -0.69732234, -0.06149469],
+    #                      [-0.01057131,  0.99959846,  0.02187438,  0.03163664],
+    #                      [0, 0, 0, 1]])
+    ee_T_cam = np.array([[0.69775333, -0.00833757,  0.71628959,  0.04929139],
+                         [0.71626033,  0.02285499, -0.69745881, -0.06149469],
+                         [-0.01055568,  0.99970402,  0.02191901,  0.03163664],
+                         [0, 0, 0, 1]])
     get_transform(name, ee_T_cam)
 
 if __name__=="__main__":
