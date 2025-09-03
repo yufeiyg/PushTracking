@@ -245,6 +245,35 @@ def rotate_fill_mesh(out_folder, world_T_cam, obj_name):
   faces = trimesh_mesh.faces.astype(np.uint32)
   meshcat_mesh = g.TriangularMeshGeometry(vertices, faces)
 
+  # Do manual rotation
+  # theta = np.deg2rad(180)  # convert degrees to radians
+  # Rx_100 = np.array([
+  #     [1, 0, 0, 0],
+  #     [0, np.cos(theta), -np.sin(theta), 0],
+  #     [0, np.sin(theta),  np.cos(theta), 0],
+  #     [0, 0, 0, 1]
+  # ], dtype=np.float32)
+
+  # theta = np.deg2rad(90)
+  # Ry_30 = np.array([
+  #     [np.cos(theta), 0, np.sin(theta), 0],
+  #     [0, 1, 0, 0],
+  #     [-np.sin(theta), 0, np.cos(theta), 0],
+  #     [0, 0, 0, 1]
+  # ], dtype=np.float32)
+
+  # theta = np.deg2rad(-8)  # convert degrees to radians
+
+  # Rz_100 = np.array([
+  #     [np.cos(theta), -np.sin(theta), 0, 0],
+  #     [np.sin(theta),  np.cos(theta), 0, 0],
+  #     [0,              0,             1, 0],
+  #     [0,              0,             0, 1]
+  # ], dtype=np.float32)
+
+  # trimesh_mesh.apply_transform(Rx_100)
+  # Apply rotation
+
   # test watertight
   if not trimesh_mesh.is_watertight:
       print("Raw mesh from BundleSDF is not watertight")

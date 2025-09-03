@@ -14,9 +14,16 @@ def view_depth():
     cv2.destroyAllWindows()
 
 def remove_mesh_offset():
-    mesh = trimesh.load('/home/yufeiyang/Documents/BundleSDF/assets/plus.obj')
-    mesh.apply_translation(-mesh.centroid)
-    mesh.export(f'/home/yufeiyang/Documents/BundleSDF/assets/plus1.obj')
+    mesh = trimesh.load('/home/yufeiyang/Documents/BundleSDF/wood_block.obj')
+    theta = np.deg2rad(180)  # convert degrees to radians
+    Rx_100 = np.array([
+        [1, 0, 0, 0],
+        [0, np.cos(theta), -np.sin(theta), 0],
+        [0, np.sin(theta),  np.cos(theta), 0],
+        [0, 0, 0, 1]
+    ], dtype=np.float32)
+    mesh.apply_transform(Rx_100)
+    mesh.export(f'/home/yufeiyang/Documents/BundleSDF/assets/wood_block_flipped.obj')
 
 def draw_transformation(trans, ax, idx):
     # Given cam_in_ob, a 4 by 4 transformation matrix, draw this as a triad with matplotlip
@@ -86,12 +93,12 @@ def view_basic_frame():
     # draw_transformation(ee_T_W, ax, "ee_T_W")
     # draw_transformation(ee_T_Base, ax, "ee_T_Base")
     plt.show()
-    
+
 if __name__ == "__main__":
     # view_depth()
-    # remove_mesh_offset()
-    cam_in_ob_path = "/home/yufeiyang/Documents/BundleSDF/arm_data/Y_shape/cam_in_ob"
-    view_transformation(cam_in_ob_path)
+    remove_mesh_offset()
+    # cam_in_ob_path = "/home/yufeiyang/Documents/BundleSDF/arm_data/Y_shape/cam_in_ob"
+    # view_transformation(cam_in_ob_path)
     # view_basic_frame()
 
     # joint_config = np.load('/home/yufeiyang/Documents/BundleSDF/arm_data/A_shape/joint_config.npy')

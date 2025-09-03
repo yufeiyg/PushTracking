@@ -57,9 +57,6 @@ if torch.cuda.is_available():
 else:
   est_device = 'cpu'
 
-Z_OFFSET = 0.05
-Z_ORG = 0.01
-
 def check_downward(pose, cam_K):
   # checking whether z is down
   def project_3d_to_2d(pt,K,ob_in_cam):
@@ -78,60 +75,7 @@ def check_downward(pose, cam_K):
     return True
   return False
 
-def is_flipped_90(prev_pose, flipped_pose):
-    def signed_angle_between_axes(T1, T2, axis, ref_axis):
-        """
-        Compute signed angle (radians) between axis `axis` of T1 and T2,
-        using `ref_axis` (3D vector) as the reference for sign.
-        """
-        R1, R2 = T1[:3,:3], T2[:3,:3]
-        u = R1[:,axis] / np.linalg.norm(R1[:,axis])
-        v = R2[:,axis] / np.linalg.norm(R2[:,axis])
-        ref = ref_axis / np.linalg.norm(ref_axis)
-
-        cross = np.cross(u, v)
-        dot = np.dot(u, v)
-        signed_angle = np.arctan2(np.dot(ref, cross), dot)
-        return signed_angle
-    tol=np.deg2rad(10)
-    # flipped_angle = 0
-    x_diff = signed_angle_between_axes(prev_pose, flipped_pose, 0, [0, 0, 1])
-    y_diff = signed_angle_between_axes(prev_pose, flipped_pose, 1, [0, 0, 1])
-    if abs(x_diff - np.pi/2) < tol and abs(y_diff - np.pi/2) < tol:
-        theta = -np.sign(x_diff) * np.pi/2   # opposite of detected flip
-        Rz = np.array([
-            [np.cos(theta), -np.sin(theta), 0],
-            [np.sin(theta),  np.cos(theta), 0],
-            [0, 0, 1]
-        ])
-        
-        corrected = np.eye(4)
-        corrected[:3,:3] = Rz @ flipped_pose[:3,:3]
-        corrected[:3,3]  = flipped_pose[:3,3]  # keep same translation
-        return corrected, True   # return corrected pose, and flag
-    return flipped_pose, False
-
-def check_triad_pos(pose, world_T_cam):
-    pose = world_T_cam @ pose
-    case = 'z up'
-    x_pos = pose[2, 0]
-    y_pos = pose[2, 1]
-    z_pos = pose[2, 2]
-    if z_pos < -Z_OFFSET:
-        case = "down"
-    elif z_pos < Z_OFFSET and z_pos > -Z_OFFSET:  # z is horizontal
-        if x_pos - Z_ORG > Z_OFFSET:
-            case = "x up"
-        elif y_pos - Z_ORG > Z_OFFSET:
-            case = "y up"
-        elif x_pos - Z_ORG < -Z_OFFSET:
-            case = "x down"
-        elif y_pos - Z_ORG < -Z_OFFSET:
-            case = "y down"
-    # breakpoint()
-    return case
-
-def is_consistent(prev_pose, flipped_pose):
+def is_flipping_correct(prev_pose, flipped_pose):
     def angle_between_axes(T1, T2, dir):
         R1 = T1[:3,:3]
         R2 = T2[:3,:3]
@@ -139,13 +83,10 @@ def is_consistent(prev_pose, flipped_pose):
         x2 = R2[:,dir] / np.linalg.norm(R2[:,dir])
         dot = np.clip(np.dot(x1, x2), -1.0, 1.0)
         return np.arccos(dot)  # radians
-    tol=np.deg2rad(20)
     x_diff = angle_between_axes(prev_pose, flipped_pose, 0)
     y_diff = angle_between_axes(prev_pose, flipped_pose, 1)
-    # if x_diff > np.pi / 3 or y_diff > np.pi / 3:
-    #     return False
-    if abs(x_diff - np.pi) < tol and abs(y_diff - np.pi) < tol:
-        return False  # inconsistent (flipped)
+    if x_diff > np.pi / 3 or y_diff > np.pi / 3:
+        return False
     return True
 
 # Shared memory names (choose unique names if you run multiple cameras)
@@ -153,52 +94,11 @@ COLOR_SHM_NAME = "realsense_color_shm_v1"
 DEPTH_SHM_NAME = "realsense_depth_shm_v1"
 META_NAME = "realsense_meta"  # Manager Namespace, not raw shm
 depth_scale = 0.0010000000474974513
-MASK_GAP = 6
-Rx_180 = np.array([
-    [1,  0,  0, 0],
-    [0, -1,  0, 0],
-    [0,  0, -1, 0],
-    [0,  0,  0, 1]
-], dtype=np.float32)
-Ry_180 = np.array([
-    [-1,  0,  0, 0],
-    [0,  1,  0, 0],
-    [0,  0, -1, 0],
-    [0,  0,  0, 1]
-])
-Rz_180 = np.array([
-    [-1,  0,  0, 0],
-    [0,  -1,  0, 0],
-    [0,  0, 1, 0],
-    [0,  0,  0, 1]
-])
-Rx_90 = np.array([
-    [1,  0,  0, 0],
-    [0,  0, -1, 0],
-    [0,  1,  0, 0],
-    [0,  0,  0, 1]
-], dtype=np.float32)
-Ry_90 = np.array([
-    [0,  0,  1, 0],
-    [0,  1,  0, 0],
-    [-1, 0,  0, 0],
-    [0,  0,  0, 1]
-], dtype=np.float32)
-Rx_minus_90 = np.array([
-    [1,  0,  0, 0],
-    [0,  0,  1, 0],
-    [0, -1,  0, 0],
-    [0,  0,  0, 1]
-], dtype=np.float32)
-Ry_minus_90 = np.array([
-    [0,  0, -1, 0],
-    [0,  1,  0, 0],
-    [1,  0,  0, 0],
-    [0,  0,  0, 1]
-], dtype=np.float32)
+MASK_GAP = 2
+
 def tracking(world_T_cam, cam_K, obj_name):
     num_frame = 60
-    re_register_freq = num_frame * 15
+    re_register_freq = num_frame *10
 
     mesh_file = f"{code_dir}/assets/{obj_name}.obj"
     mesh = trimesh.load(mesh_file, force='mesh')
@@ -250,7 +150,7 @@ def tracking(world_T_cam, cam_K, obj_name):
     lcm_pose_publisher = PosePublisher(obj_name)
     Estimating = True
     keep_gui_window_open = True
-    # time.sleep(3)
+    time.sleep(3)
     prev_pose = None
     try:
         while Estimating:
@@ -268,6 +168,9 @@ def tracking(world_T_cam, cam_K, obj_name):
                 processor = InferenceCore(network, config=config_file)
                 processor.set_all_labels(range(1, num_objects+1)) # consecutive labels
                 segment_mask = segment_mask[:, :, 0]
+
+
+
             # Scale depth image to mm
             depth_image_scaled = (depth_image * depth_scale * 1000).astype(np.float32)
             if cv2.waitKey(1) == 13:
@@ -290,18 +193,16 @@ def tracking(world_T_cam, cam_K, obj_name):
                 mask = cv2.resize(mask, (W,H), interpolation=cv2.INTER_NEAREST).astype(bool).astype(np.uint8)
                 pose = est.register(K=cam_K, rgb=color, depth=depth, ob_mask=mask,
                                     iteration=est_refine_iter)
+                # breakpoint()
                 mask_torch = index_numpy_to_one_hot_torch(segment_mask, num_objects+1).to(est_device)
                 prediction = processor.step(frame_torch, mask_torch[1:])
             elif i % re_register_freq == 0:
                 pose = est.register(K=cam_K, rgb=color, depth=depth, ob_mask=predicted_mask,
                                     iteration=est_refine_iter)
                 prediction = processor.step(frame_torch)
-                # check if this is consistent with the previous frame
-                if not is_consistent(prev_pose, pose):
-                    pose = pose @ Rz_180
-                flipped, is_flipped = is_flipped_90(prev_pose, pose)
-                if is_flipped:
-                    pose = flipped
+                cv2.imwrite(os.path.join(mask_path, f"{i:05d}.png"), predicted_mask)
+
+
             else:
                 pose = est.track_one(rgb=color, depth=depth, K=cam_K,
                                         iteration=track_refine_iter)
@@ -311,31 +212,41 @@ def tracking(world_T_cam, cam_K, obj_name):
                 prediction = torch_prob_to_numpy_mask(prediction)
                 predicted_mask = prediction.astype(np.uint8) * 255
 
-            case = check_triad_pos(pose, world_T_cam)
-            if case == "down":
-            # if check_downward(pose, cam_K):
+            # cv2.imshow(f"mask_{obj_name}", predicted_mask)
+            # os.makedirs(f'{debug_dir}/ob_in_cam', exist_ok=True)
+            # np.savetxt(f'{debug_dir}/ob_in_cam/{i}.txt', pose.reshape(4,4))
+            # print("save to " + f'{debug_dir}/ob_in_cam/{i}.txt')
+
+            if check_downward(pose, cam_K):
+                #  rotate pose by 180 degrees around the y axis
+                Rx_180 = np.array([
+                    [1,  0,  0, 0],
+                    [0, -1,  0, 0],
+                    [0,  0, -1, 0],
+                    [0,  0,  0, 1]
+                ], dtype=np.float32)
+                Ry_180 = np.array([
+                    [-1,  0,  0, 0],
+                    [0,  1,  0, 0],
+                    [0,  0, -1, 0],
+                    [0,  0,  0, 1]
+                ])
+                Rz_180 = np.array([
+                    [-1,  0,  0, 0],
+                    [0,  -1,  0, 0],
+                    [0,  0, 1, 0],
+                    [0,  0,  0, 1]
+                ])
+                # T_y_180 = np.eye(4)
+                # T_y_180[:3, :3] = Rx_180
                 flipped_pose = pose @ Rx_180 
                 if i > 0:
-                    if not is_consistent(prev_pose, flipped_pose):
-                        flipped_pose = pose @ Ry_180
+                    if not is_flipping_correct(prev_pose, flipped_pose):
+                        flipped_pose = pose @ Rz_180
                 pose = flipped_pose
-
-            if case != "z up":
-                # breakpoint()
-                if case == "x up":
-                    pose = pose @ Ry_90
-                    pose = pose @ Rz_180
-                elif case == "x down":
-                    pose = pose @ Ry_minus_90
-                    pose = pose @ Rz_180
-                elif case == "y up":
-                    pose = pose @ Rx_minus_90
-                    pose = pose @ Rz_180
-                elif case == "y down":
-                    pose = pose @ Rx_90
-                    pose = pose @ Rz_180
-
             prev_pose = pose.copy()
+                # if is_aligned(flipped_pose, pose, world_T_cam):
+                #     pose = flipped_pose
             cam_to_object = pose.copy()
             obj_pose_in_world = world_T_cam @ cam_to_object
             obj_pose_in_world[2, 3] = z_height/2 -0.022
@@ -353,6 +264,7 @@ def tracking(world_T_cam, cam_K, obj_name):
                     # cv2.destroyWindow(f"mask_{obj_name}")
                     keep_gui_window_open = False
             i += 1
+            print(f"duration: {time.perf_counter() - start_time}")
     finally:
         print("Tracking finished")
         # color_shm.close()
@@ -395,7 +307,7 @@ if __name__ == "__main__":
     # parser.add_argument('--video_dir', type=str, default="/home/bowen/debug/2022-11-18-15-10-24_milk/")
     parser.add_argument('--object_name', type=str, help='object name for Foundation Pose')
     args = parser.parse_args()
-    video_dir = f"{code_dir}/live_data"
+    video_dir = f"{code_dir}/live_data/"
     vid_dir = f'{video_dir}/{args.object_name}'
     cam_k = np.loadtxt(f'{vid_dir}/cam_K.txt').reshape(3,3)
     tracking(world_T_cam, cam_k, args.object_name)
