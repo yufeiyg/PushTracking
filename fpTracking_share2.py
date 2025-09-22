@@ -239,10 +239,10 @@ def tracking(world_T_cam, cam_K, obj_name):
                 ])
                 # T_y_180 = np.eye(4)
                 # T_y_180[:3, :3] = Rx_180
-                flipped_pose = pose @ Rx_180 
+                flipped_pose = pose @ Ry_180 
                 if i > 0:
                     if not is_flipping_correct(prev_pose, flipped_pose):
-                        flipped_pose = pose @ Rz_180
+                        flipped_pose = flipped_pose @ Rz_180
                 pose = flipped_pose
             prev_pose = pose.copy()
                 # if is_aligned(flipped_pose, pose, world_T_cam):

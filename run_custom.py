@@ -18,7 +18,6 @@ import meshcat
 import meshcat.geometry as g
 import pymeshfix
 # code_dir = os.path.dirname(os.path.realpath(__file__))
-
 def run_one_video(video_dir='/home/bowen/debug/2022-11-18-15-10-24_milk', out_folder='/home/bowen/debug/bundlesdf_2022-11-18-15-10-24_milk/', use_segmenter=False, use_gui=False):
   set_seed(0)
 
@@ -232,47 +231,84 @@ def rotate_fill_mesh(out_folder, world_T_cam, obj_name):
   # Load the camera extrinsics
   trimesh_mesh = scene_or_mesh
   world_T_object = world_T_cam @ last_frame_pose
-  print(world_T_object)
   # === 2. Create a MeshCat visualizer ===
   vis = meshcat.Visualizer().open()
   vis.delete()  # Clear the scene
 
   trimesh_mesh.apply_transform(world_T_object)
   trimesh_mesh.apply_translation(-trimesh_mesh.centroid)
+  # Do manual rotation
+  theta = np.deg2rad(75)  # convert degrees to radians
+  Rx_100 = np.array([
+      [1, 0, 0, 0],
+      [0, np.cos(theta), -np.sin(theta), 0],
+      [0, np.sin(theta),  np.cos(theta), 0],
+      [0, 0, 0, 1]
+  ], dtype=np.float32)
 
-  # Create a MeshCat mesh object from Trimesh geometry
+  theta = np.deg2rad(190)
+  Ry_30 = np.array([
+      [np.cos(theta), 0, np.sin(theta), 0],
+      [0, 1, 0, 0],
+      [-np.sin(theta), 0, np.cos(theta), 0],
+      [0, 0, 0, 1]
+  ], dtype=np.float32)
+
+  theta = np.deg2rad(65)  # convert degrees to radians
+
+  Rz_100 = np.array([
+      [np.cos(theta), -np.sin(theta), 0, 0],
+      [np.sin(theta),  np.cos(theta), 0, 0],
+      [0,              0,             1, 0],
+      [0,              0,             0, 1]
+  ], dtype=np.float32)
+
+  # trimesh_mesh.apply_transform(Rx_100)
+  # trimesh_mesh.apply_transform(Ry_30)
+  # trimesh_mesh.apply_transform(Rz_100)
+
+  trimesh_mesh.export(f'{code_dir}/assets_textured/{obj_name}.obj')
+  # change mtl and png names
+  mtl_name = 'material.mtl'
+  png_name = 'material_0.png'
+  src_dir = f'{out_folder}'
+  new_mtl_name = f'{obj_name}_material.mtl'
+  new_png_name = f'{obj_name}_material_0.png'
+  dst_dir = f'{code_dir}/assets_textured/'
+  shutil.copy2(os.path.join(src_dir, mtl_name), os.path.join(dst_dir, new_mtl_name))
+  shutil.copy2(os.path.join(src_dir, png_name), os.path.join(dst_dir, new_png_name))
+  new_obj_path = f'{code_dir}/assets_textured/{obj_name}.obj'
+  with open(new_obj_path, 'r') as f:
+      lines = f.readlines()
+
+  with open(new_obj_path, 'w') as f:
+      for line in lines:
+          if line.lower().startswith('mtllib '):
+              f.write(f"mtllib {new_mtl_name}\n")
+          elif line.lower().startswith('usemtl '):
+              f.write(f"usemtl {new_mtl_name.replace('.mtl', '_0')}\n")  # adjust if you have multiple materials
+          else:
+              f.write(line)
+
+  # Update .mtl file to reference new PNG
+  mtl_path = os.path.join(dst_dir, new_mtl_name)
+  with open(mtl_path, 'r') as f:
+      lines = f.readlines()
+
+  with open(mtl_path, 'w') as f:
+      for line in lines:
+          if line.lower().startswith('map_kd '):
+              f.write(f"map_Kd {new_png_name}\n")
+          elif line.lower().startswith('newmtl '):
+              f.write(f"newmtl {new_png_name[:-4]}\n")
+          else:
+              f.write(line)
+
+
   vertices = trimesh_mesh.vertices.astype(np.float32)
   faces = trimesh_mesh.faces.astype(np.uint32)
   meshcat_mesh = g.TriangularMeshGeometry(vertices, faces)
 
-  # Do manual rotation
-  # theta = np.deg2rad(180)  # convert degrees to radians
-  # Rx_100 = np.array([
-  #     [1, 0, 0, 0],
-  #     [0, np.cos(theta), -np.sin(theta), 0],
-  #     [0, np.sin(theta),  np.cos(theta), 0],
-  #     [0, 0, 0, 1]
-  # ], dtype=np.float32)
-
-  # theta = np.deg2rad(90)
-  # Ry_30 = np.array([
-  #     [np.cos(theta), 0, np.sin(theta), 0],
-  #     [0, 1, 0, 0],
-  #     [-np.sin(theta), 0, np.cos(theta), 0],
-  #     [0, 0, 0, 1]
-  # ], dtype=np.float32)
-
-  # theta = np.deg2rad(-8)  # convert degrees to radians
-
-  # Rz_100 = np.array([
-  #     [np.cos(theta), -np.sin(theta), 0, 0],
-  #     [np.sin(theta),  np.cos(theta), 0, 0],
-  #     [0,              0,             1, 0],
-  #     [0,              0,             0, 1]
-  # ], dtype=np.float32)
-
-  # trimesh_mesh.apply_transform(Rx_100)
-  # Apply rotation
 
   # test watertight
   if not trimesh_mesh.is_watertight:
@@ -282,7 +318,7 @@ def rotate_fill_mesh(out_folder, world_T_cam, obj_name):
       trimesh_mesh.remove_degenerate_faces()
       trimesh_mesh.remove_unreferenced_vertices()
       meshfix = pymeshfix.MeshFix(trimesh_mesh.vertices, trimesh_mesh.faces)
-      meshfix.repair()
+      # meshfix.repair()
 
       fixed_mesh = trimesh.Trimesh(meshfix.v, meshfix.f)
   print("Is the mesh watertight?", fixed_mesh.is_watertight)

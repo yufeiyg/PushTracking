@@ -7,6 +7,7 @@ import argparse
 import sys
 from multiprocessing import shared_memory, Lock, Process, Manager
 import multiprocessing
+from lcm_sys.franka_subscriber import controller_subscriber
 
 sys.path.append("/home/yufeiyang/Documents/XMem")
 
@@ -148,6 +149,7 @@ def is_consistent(prev_pose, flipped_pose):
         return False  # inconsistent (flipped)
     return True
 
+
 # Shared memory names (choose unique names if you run multiple cameras)
 COLOR_SHM_NAME = "realsense_color_shm_v1"
 DEPTH_SHM_NAME = "realsense_depth_shm_v1"
@@ -199,7 +201,7 @@ Ry_minus_90 = np.array([
 def tracking(world_T_cam, cam_K, obj_name):
     num_frame = 60
     re_register_freq = num_frame * 15
-
+    controller_listener = controller_subscriber()
     mesh_file = f"{code_dir}/assets/{obj_name}.obj"
     mesh = trimesh.load(mesh_file, force='mesh')
     debug = 1
@@ -252,9 +254,14 @@ def tracking(world_T_cam, cam_K, obj_name):
     keep_gui_window_open = True
     # time.sleep(3)
     prev_pose = None
+
+    previous_controller_mode = False
     try:
         while Estimating:
             start_time = time.perf_counter()
+            controller_listener.run()
+            is_c3 = controller_listener.get_controller_mode()  # True if in C3
+            print("current controller mode", is_c3)
             ########
             color_image = color_buf.copy()
             depth_image = depth_buf.copy()/1e3
@@ -296,12 +303,8 @@ def tracking(world_T_cam, cam_K, obj_name):
                 pose = est.register(K=cam_K, rgb=color, depth=depth, ob_mask=predicted_mask,
                                     iteration=est_refine_iter)
                 prediction = processor.step(frame_torch)
-                # check if this is consistent with the previous frame
                 if not is_consistent(prev_pose, pose):
                     pose = pose @ Rz_180
-                flipped, is_flipped = is_flipped_90(prev_pose, pose)
-                if is_flipped:
-                    pose = flipped
             else:
                 pose = est.track_one(rgb=color, depth=depth, K=cam_K,
                                         iteration=track_refine_iter)
@@ -314,26 +317,27 @@ def tracking(world_T_cam, cam_K, obj_name):
             case = check_triad_pos(pose, world_T_cam)
             if case == "down":
             # if check_downward(pose, cam_K):
-                flipped_pose = pose @ Rx_180 
+                # try_flip()
+                flipped_pose = pose @ Ry_180 
                 if i > 0:
                     if not is_consistent(prev_pose, flipped_pose):
-                        flipped_pose = pose @ Ry_180
+                        flipped_pose = flipped_pose @ Rz_180
                 pose = flipped_pose
 
-            if case != "z up":
-                # breakpoint()
-                if case == "x up":
-                    pose = pose @ Ry_90
-                    pose = pose @ Rz_180
-                elif case == "x down":
-                    pose = pose @ Ry_minus_90
-                    pose = pose @ Rz_180
-                elif case == "y up":
-                    pose = pose @ Rx_minus_90
-                    pose = pose @ Rz_180
-                elif case == "y down":
-                    pose = pose @ Rx_90
-                    pose = pose @ Rz_180
+            # if case != "z up":
+            #     # breakpoint()
+            #     if case == "x up":
+            #         pose = pose @ Ry_90
+            #         pose = pose @ Rz_180
+            #     elif case == "x down":
+            #         pose = pose @ Ry_minus_90
+            #         pose = pose @ Rz_180
+            #     elif case == "y up":
+            #         pose = pose @ Rx_minus_90
+            #         pose = pose @ Rz_180
+            #     elif case == "y down":
+            #         pose = pose @ Rx_90
+            #         pose = pose @ Rz_180
 
             prev_pose = pose.copy()
             cam_to_object = pose.copy()
@@ -353,6 +357,7 @@ def tracking(world_T_cam, cam_K, obj_name):
                     # cv2.destroyWindow(f"mask_{obj_name}")
                     keep_gui_window_open = False
             i += 1
+            previous_controller_mode = is_c3
     finally:
         print("Tracking finished")
         # color_shm.close()

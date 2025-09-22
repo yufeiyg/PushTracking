@@ -8,7 +8,6 @@ import multiprocessing
 import struct
 import sys
 import signal
-
 # Shared memory names (choose unique names if you run multiple cameras)
 COLOR_SHM_NAME = "realsense_color_shm_v1"
 DEPTH_SHM_NAME = "realsense_depth_shm_v1"
@@ -17,7 +16,7 @@ META_NAME = "realsense_meta"  # Manager Namespace, not raw shm
 def create_camera_pipeline(width=640, height=480, fps=60):
     pipeline = rs.pipeline()
     cfg = rs.config()
-    cfg.enable_stream(rs.stream.color, width, height, rs.format.bgr8, fps)
+    cfg.enable_stream(rs.stream.color, width, height, rs.format.rgb8, fps)
     cfg.enable_stream(rs.stream.depth, width, height, rs.format.z16, fps)
     profile = pipeline.start(cfg)
     # Optionally align depth to color
@@ -99,7 +98,7 @@ def producer_main(width=640, height=480, fps=30):
         running = False
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
-
+    # terminal_input = input()
     try:
         while running:
             frames = pipeline.wait_for_frames(timeout_ms=1000)
@@ -127,7 +126,11 @@ def producer_main(width=640, height=480, fps=30):
             # print status occasionally
             if meta.frame_id % 30 == 0:
                 print(f"Producer wrote frame {meta.frame_id} @ {meta.timestamp}")
-
+            # if terminal_input.lower() == 'd':
+            #     break
+            # if keyboard.is_pressed('d'):
+            #     print("Detected 'd' key press. Exiting producer loop.")
+            #     break
     finally:
         pipeline.stop()
         cleanup_shm([color_shm, depth_shm])

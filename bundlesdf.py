@@ -756,8 +756,8 @@ class BundleSdf:
     mesh = largest
     mesh.export(f'{self.debug_dir}/mesh_cleaned.obj')
 
-    # if get_texture:
-    #   mesh = nerf.mesh_texture_from_train_images(mesh, rgbs_raw=rgbs_raw, train_texture=False, tex_res=tex_res)
+    if get_texture:
+      mesh = nerf.mesh_texture_from_train_images(mesh, rgbs_raw=rgbs_raw, train_texture=False, tex_res=tex_res)
 
     mesh = mesh_to_real_world(mesh, pose_offset=offset, translation=self.cfg_nerf['translation'], sc_factor=self.cfg_nerf['sc_factor'])
     mesh.export(f'{self.debug_dir}/textured_mesh.obj')
