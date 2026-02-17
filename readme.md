@@ -11,8 +11,21 @@ python bundlesdf/run_nerf.py --ref_view_dir /home/yufeiyang/Documents/BundleSDF/
 ```
 
 3. Step 3: run FoundationPose. The object state will be published to the "OBJECT_{object_name}_STATE_SIMULATION" channel in lcm.
+If you are working with LCM, you can do single/multi object tracking by running:
+```
+python auto_tracking.py
+```
+If you are NOT working with LCM and want to do single object tracking, run:
 ```
 python fpTracking.py --object_name A_shape
+```
+If you are NNOT working with LCM and want to do multi-objects tracking, run:
+```
+python camera_memory.py
+```
+and then for each object you wish to track, do:
+```
+python fpTracking_share3.py --object_name A_shape
 ```
 
 ## Docker setup
